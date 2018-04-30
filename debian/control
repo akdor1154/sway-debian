@@ -1,0 +1,33 @@
+Source: sway
+Section: x11
+Priority: optional
+Maintainer: Nicolas Braud-Santoni <nicolas@braud-santoni.eu>
+Build-Depends:
+ debhelper (>= 11),
+ libwlroots-dev,
+ libwayland-dev,
+ libinput-dev (>= 1.6.0),
+ libcap-dev,
+ libpcre3-dev,
+ libjson-c-dev (>= 0.13),
+ libpango1.0-dev,
+ libcairo2-dev,
+ libgdk-pixbuf2.0-dev,
+ libpam0g-dev,
+ libdbus-1-dev (>= 1.10),
+ meson,
+ pkgconf
+Standards-Version: 4.1.4
+Homepage: http://swaywm.org
+Vcs-Browser: https://salsa.debian.org/swaywm-team/sway
+Vcs-Git: https://salsa.debian.org/swaywm-team/sway.git
+Rules-Requires-Root: no
+
+Package: sway
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends}
+Description: i3-compatible Wayland compositor
+ sway (SirCmpwn's Wayland compositor) is a work in an i3-compatible Wayland
+ compositor.  This means it is a minimalist, tiling window manager.

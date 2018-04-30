@@ -1,0 +1,5 @@
+sway (1.0~alpha.1-1) UNRELEASED; urgency=low
+
+  * Initial packaging (Closes: 897246, 821397)
+
+ -- Nicolas Braud-Santoni <nicolas@braud-santoni.eu>  Mon, 30 Apr 2018 20:11:07 +0200
