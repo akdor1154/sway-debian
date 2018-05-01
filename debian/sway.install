@@ -1,8 +1,8 @@
 etc/
 usr/bin/sway
-usr/bin/swaybar
-usr/bin/swaybg
 usr/bin/swaymsg
+usr/lib/sway/swaybar
+usr/lib/sway/swaybg
 usr/share/wayland-sessions
 usr/share/man/man1/sway.1
 usr/share/man/man1/swaymsg.1

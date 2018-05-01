@@ -11,7 +11,7 @@ include /usr/share/dpkg/pkg-info.mk
 
 .PHONY: override_dh_auto_configure
 override_dh_auto_configure:
-	dh_auto_configure -- -Dsway_version=$(DEB_VERSION_UPSTREAM)
+	dh_auto_configure -- -Dsway_version=$(DEB_VERSION_UPSTREAM) --libexecdir=lib
 
 .PHONY: override_dh_missing
 override_dh_missing:
