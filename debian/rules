@@ -16,3 +16,10 @@ override_dh_auto_configure:
 .PHONY: override_dh_missing
 override_dh_missing:
 	dh_missing --fail-missing -Xusr/share/zsh/site-functions/_swaygrab
+
+.PHONY: override_dh_install
+override_dh_install:
+	if ! dh_install; then \
+		tree debian/tmp;    \
+    exit 1;             \
+	fi
