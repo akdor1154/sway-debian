@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 700
+#define _POSIX_C_SOURCE 200809L
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -53,6 +53,20 @@ void strip_quotes(char *str) {
 		memmove(str, str+1, end-- - str);
 	}
 	*end = '\0';
+}
+
+char *lenient_strcat(char *dest, const char *src) {
+	if (dest && src) {
+		return strcat(dest, src);
+	}
+	return dest;
+}
+
+char *lenient_strncat(char *dest, const char *src, size_t len) {
+	if (dest && src) {
+		return strncat(dest, src, len);
+	}
+	return dest;
 }
 
 // strcmp that also handles null pointers.
@@ -386,4 +400,18 @@ char *argsep(char **stringp, const char *delim) {
 	}
 	found:
 	return start;
+}
+
+const char *strcasestr(const char *haystack, const char *needle) {
+	size_t needle_len = strlen(needle);
+	const char *pos = haystack;
+	const char *end = pos + strlen(haystack) - needle_len;
+
+	while (pos <= end) {
+		if (strncasecmp(pos, needle, needle_len) == 0) {
+			return pos;
+		}
+		++pos;
+	}
+	return NULL;
 }

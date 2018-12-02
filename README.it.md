@@ -25,14 +25,6 @@ Questa traduzione non è ancora completa. [Clicca qui per maggiori informazioni]
 Le release sono firmate con [B22DA89A](http://pgp.mit.edu/pks/lookup?op=vindex&search=0x52CB6609B22DA89A)
 e pubblicate [su GitHub](https://github.com/swaywm/sway/releases).
 
-## Status
-
-- [supporto funzionalità i3](https://github.com/swaywm/sway/issues/2)
-- [supporto funzionalità IPC](https://github.com/swaywm/sway/issues/98)
-- [supporto funzionalità i3bar](https://github.com/swaywm/sway/issues/343)
-- [supporto funzionalità i3-gaps](https://github.com/swaywm/sway/issues/307)
-- [sicurezza](https://github.com/swaywm/sway/issues/984)
-
 ## Installazione
 
 ### Dai pacchetti
@@ -54,15 +46,14 @@ Installa queste dipendenze:
 * xwayland
 * libinput >= 1.6.0
 * libcap
-* asciidoc
 * pcre
 * json-c >= 0.13
 * pango
 * cairo
 * gdk-pixbuf2 *
 * pam **
-* imagemagick (richiesto per catturare immagini con swaygrab)
-* ffmpeg (rrichiesto per catturare video con swaygrab)
+* [scdoc](https://git.sr.ht/~sircmpwn/scdoc) (rrichiesto per man pages)
+* git
 
 _\*Richiesto solo per swaybar, swaybg, e swaylock_
 
@@ -73,10 +64,6 @@ Esegui questi comandi:
     meson build
     ninja -C build
     sudo ninja -C build install
-
-Per i sistemi con logind, devi impostare un paio di caps sull'eseguibile:
-
-    sudo setcap "cap_sys_ptrace,cap_sys_tty_config=eip" /usr/local/bin/sway
 
 Per i sistemi senza logind, devi cambiare i permessi (suid):
 

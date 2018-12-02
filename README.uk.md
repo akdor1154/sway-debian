@@ -29,14 +29,6 @@ Hummer12007 у IRC-спільноті. Будьте терплячі, вам о�
 Випуски підписані ключем [B22DA89A](http://pgp.mit.edu/pks/lookup?op=vindex&search=0x52CB6609B22DA89A)
 та публікуються на сторінці [GitHub](https://github.com/swaywm/sway/releases).
 
-## Стан розробки
-
-- [Підтримка функцій i3](https://github.com/swaywm/sway/issues/2)
-- [Реалізація IPC-протоколу i3](https://github.com/swaywm/sway/issues/98)
-- [Підтримка функцій i3bar](https://github.com/swaywm/sway/issues/343)
-- [Підтримка функцій i3-gaps](https://github.com/swaywm/sway/issues/307)
-- [Функції безпеки](https://github.com/swaywm/sway/issues/984)
-
 ## Встановлення
 
 ### З пакунків
@@ -60,15 +52,14 @@ Sway доступний у багатьох дистрибутивах Linux (а
 * xwayland
 * libinput >= 1.6.0
 * libcap
-* asciidoc
 * pcre
 * json-c >= 0.13
 * pango
 * cairo
 * gdk-pixbuf2 *
 * pam **
-* imagemagick (для захоплення зображень за допомогою swaygrab)
-* ffmpeg (для захоплення відео за допомогою swaygrab)
+* [scdoc](https://git.sr.ht/~sircmpwn/scdoc) (required for man pages)
+* git
 
 _\*Лише для swaybar, swaybg та swaylock_
 

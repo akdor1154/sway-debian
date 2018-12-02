@@ -1,106 +1,143 @@
 #include <assert.h>
+#include <limits.h>
 #include <wlr/backend/multi.h>
 #include <wlr/backend/session.h>
-#include "sway/input/seat.h"
-#include "sway/input/keyboard.h"
-#include "sway/input/input-manager.h"
+#include <wlr/types/wlr_idle.h>
+#include <wlr/interfaces/wlr_keyboard.h>
 #include "sway/commands.h"
+#include "sway/desktop/transaction.h"
+#include "sway/input/input-manager.h"
+#include "sway/input/keyboard.h"
+#include "sway/input/seat.h"
+#include "sway/ipc-server.h"
 #include "log.h"
 
-static bool keysym_is_modifier(xkb_keysym_t keysym) {
-	switch (keysym) {
-	case XKB_KEY_Shift_L: case XKB_KEY_Shift_R:
-	case XKB_KEY_Control_L: case XKB_KEY_Control_R:
-	case XKB_KEY_Caps_Lock:
-	case XKB_KEY_Shift_Lock:
-	case XKB_KEY_Meta_L: case XKB_KEY_Meta_R:
-	case XKB_KEY_Alt_L: case XKB_KEY_Alt_R:
-	case XKB_KEY_Super_L: case XKB_KEY_Super_R:
-	case XKB_KEY_Hyper_L: case XKB_KEY_Hyper_R:
-		return true;
-	default:
-		return false;
-	}
-}
-
-static size_t pressed_keysyms_length(xkb_keysym_t *pressed_keysyms) {
-	size_t n = 0;
-	for (size_t i = 0; i < SWAY_KEYBOARD_PRESSED_KEYSYMS_CAP; ++i) {
-		if (pressed_keysyms[i] != XKB_KEY_NoSymbol) {
-			++n;
+/**
+ * Remove all key ids associated to a keycode from the list of pressed keys
+ */
+static void state_erase_key(struct sway_shortcut_state *state,
+		uint32_t keycode) {
+	size_t j = 0;
+	for (size_t i = 0; i < state->npressed; ++i) {
+		if (i > j) {
+			state->pressed_keys[j] = state->pressed_keys[i];
+			state->pressed_keycodes[j] = state->pressed_keycodes[i];
+		}
+		if (state->pressed_keycodes[i] != keycode) {
+			++j;
 		}
 	}
-	return n;
-}
-
-static ssize_t pressed_keysyms_index(xkb_keysym_t *pressed_keysyms,
-		xkb_keysym_t keysym) {
-	for (size_t i = 0; i < SWAY_KEYBOARD_PRESSED_KEYSYMS_CAP; ++i) {
-		if (pressed_keysyms[i] == keysym) {
-			return i;
-		}
+	while(state->npressed > j) {
+		--state->npressed;
+		state->pressed_keys[state->npressed] = 0;
+		state->pressed_keycodes[state->npressed] = 0;
 	}
-	return -1;
+	state->current_key = 0;
 }
 
-static void pressed_keysyms_add(xkb_keysym_t *pressed_keysyms,
-		xkb_keysym_t keysym) {
-	ssize_t i = pressed_keysyms_index(pressed_keysyms, keysym);
-	if (i < 0) {
-		i = pressed_keysyms_index(pressed_keysyms, XKB_KEY_NoSymbol);
-		if (i >= 0) {
-			pressed_keysyms[i] = keysym;
-		}
+/**
+ * Add a key id (with associated keycode) to the list of pressed keys,
+ * if the list is not full.
+ */
+static void state_add_key(struct sway_shortcut_state *state,
+		uint32_t keycode, uint32_t key_id) {
+	if (state->npressed >= SWAY_KEYBOARD_PRESSED_KEYS_CAP) {
+		return;
+	}
+	size_t i = 0;
+	while (i < state->npressed && state->pressed_keys[i] < key_id) {
+		++i;
+	}
+	size_t j = state->npressed;
+	while (j > i) {
+		state->pressed_keys[j] = state->pressed_keys[j - 1];
+		state->pressed_keycodes[j] = state->pressed_keycodes[j - 1];
+		--j;
+	}
+	state->pressed_keys[i] = key_id;
+	state->pressed_keycodes[i] = keycode;
+	state->npressed++;
+	state->current_key = key_id;
+}
+
+/**
+ * Update the shortcut model state in response to new input
+ */
+static void update_shortcut_state(struct sway_shortcut_state *state,
+		struct wlr_event_keyboard_key *event, uint32_t new_key,
+		uint32_t raw_modifiers) {
+	bool last_key_was_a_modifier = raw_modifiers != state->last_raw_modifiers;
+	state->last_raw_modifiers = raw_modifiers;
+
+	if (last_key_was_a_modifier && state->last_keycode) {
+		// Last pressed key before this one was a modifier
+		state_erase_key(state, state->last_keycode);
+	}
+
+	if (event->state == WLR_KEY_PRESSED) {
+		// Add current key to set; there may be duplicates
+		state_add_key(state, event->keycode, new_key);
+		state->last_keycode = event->keycode;
+	} else {
+		state_erase_key(state, event->keycode);
 	}
 }
 
-static void pressed_keysyms_remove(xkb_keysym_t *pressed_keysyms,
-		xkb_keysym_t keysym) {
-	ssize_t i = pressed_keysyms_index(pressed_keysyms, keysym);
-	if (i >= 0) {
-		pressed_keysyms[i] = XKB_KEY_NoSymbol;
-	}
-}
+/**
+ * If one exists, finds a binding which matches the shortcut model state,
+ * current modifiers, release state, and locked state.
+ */
+static void get_active_binding(const struct sway_shortcut_state *state,
+		list_t *bindings, struct sway_binding **current_binding,
+		uint32_t modifiers, bool release, bool locked, const char *input) {
+	for (int i = 0; i < bindings->length; ++i) {
+		struct sway_binding *binding = bindings->items[i];
+		bool binding_locked = binding->flags & BINDING_LOCKED;
+		bool binding_release = binding->flags & BINDING_RELEASE;
 
-static void pressed_keysyms_update(xkb_keysym_t *pressed_keysyms,
-		const xkb_keysym_t *keysyms, size_t keysyms_len,
-		enum wlr_key_state state) {
-	for (size_t i = 0; i < keysyms_len; ++i) {
-		if (keysym_is_modifier(keysyms[i])) {
+		if (modifiers ^ binding->modifiers ||
+				release != binding_release ||
+				locked > binding_locked ||
+				(strcmp(binding->input, input) != 0 &&
+				 strcmp(binding->input, "*") != 0)) {
 			continue;
 		}
-		if (state == WLR_KEY_PRESSED) {
-			pressed_keysyms_add(pressed_keysyms, keysyms[i]);
-		} else { // WLR_KEY_RELEASED
-			pressed_keysyms_remove(pressed_keysyms, keysyms[i]);
+
+		bool match = false;
+		if (state->npressed == (size_t)binding->keys->length) {
+			match = true;
+			for (size_t j = 0; j < state->npressed; j++) {
+				uint32_t key = *(uint32_t *)binding->keys->items[j];
+				if (key != state->pressed_keys[j]) {
+					match = false;
+					break;
+				}
+			}
+		} else if (binding->keys->length == 1) {
+			/*
+			 * If no multiple-key binding has matched, try looking for
+			 * single-key bindings that match the newly-pressed key.
+			 */
+			match = state->current_key == *(uint32_t *)binding->keys->items[0];
+		}
+		if (!match) {
+			continue;
+		}
+
+		if (*current_binding && *current_binding != binding &&
+				strcmp((*current_binding)->input, binding->input) == 0) {
+			wlr_log(WLR_DEBUG, "encountered duplicate bindings %d and %d",
+					(*current_binding)->order, binding->order);
+		} else if (!*current_binding ||
+				strcmp((*current_binding)->input, "*") == 0) {
+			*current_binding = binding;
+
+			if (strcmp((*current_binding)->input, input) == 0) {
+				// If a binding is found for the exact input, quit searching
+				return;
+			}
 		}
 	}
-}
-
-static bool binding_matches_key_state(struct sway_binding *binding,
-		enum wlr_key_state key_state) {
-	if (key_state == WLR_KEY_PRESSED && !binding->release) {
-		return true;
-	}
-	if (key_state == WLR_KEY_RELEASED && binding->release) {
-		return true;
-	}
-
-	return false;
-}
-
-static void keyboard_execute_command(struct sway_keyboard *keyboard,
-		struct sway_binding *binding) {
-	wlr_log(L_DEBUG, "running command for binding: %s",
-		binding->command);
-	config_clear_handler_context(config);
-	config->handler_context.seat = keyboard->seat_device->sway_seat;
-	struct cmd_results *results = execute_command(binding->command, NULL);
-	if (results->status != CMD_SUCCESS) {
-		wlr_log(L_DEBUG, "could not run command for binding: %s (%s)",
-			binding->command, results->error);
-	}
-	free_cmd_results(results);
 }
 
 /**
@@ -111,166 +148,19 @@ static void keyboard_execute_command(struct sway_keyboard *keyboard,
  * should be propagated to clients.
  */
 static bool keyboard_execute_compositor_binding(struct sway_keyboard *keyboard,
-		xkb_keysym_t *pressed_keysyms, uint32_t modifiers, size_t keysyms_len) {
+		const xkb_keysym_t *pressed_keysyms, uint32_t modifiers, size_t keysyms_len) {
 	for (size_t i = 0; i < keysyms_len; ++i) {
 		xkb_keysym_t keysym = pressed_keysyms[i];
 		if (keysym >= XKB_KEY_XF86Switch_VT_1 &&
 				keysym <= XKB_KEY_XF86Switch_VT_12) {
 			if (wlr_backend_is_multi(server.backend)) {
 				struct wlr_session *session =
-					wlr_multi_get_session(server.backend);
+					wlr_backend_get_session(server.backend);
 				if (session) {
 					unsigned vt = keysym - XKB_KEY_XF86Switch_VT_1 + 1;
 					wlr_session_change_vt(session, vt);
 				}
 			}
-			return true;
-		}
-	}
-
-	return false;
-}
-
-/**
- * Execute keyboard bindings bound with `bindysm` for the given keyboard state.
- *
- * Returns true if the keysym was handled by a binding and false if the event
- * should be propagated to clients.
- */
-static bool keyboard_execute_bindsym(struct sway_keyboard *keyboard,
-		xkb_keysym_t *pressed_keysyms, uint32_t modifiers,
-		enum wlr_key_state key_state) {
-	// configured bindings
-	int n = pressed_keysyms_length(pressed_keysyms);
-	list_t *keysym_bindings = config->current_mode->keysym_bindings;
-	for (int i = 0; i < keysym_bindings->length; ++i) {
-		struct sway_binding *binding = keysym_bindings->items[i];
-		if (!binding_matches_key_state(binding, key_state) ||
-				modifiers ^ binding->modifiers ||
-				n != binding->keys->length) {
-			continue;
-		}
-
-		bool match = true;
-		for (int j = 0; j < binding->keys->length; ++j) {
-			match =
-				pressed_keysyms_index(pressed_keysyms,
-					*(int*)binding->keys->items[j]) >= 0;
-
-			if (!match) {
-				break;
-			}
-		}
-
-		if (match) {
-			keyboard_execute_command(keyboard, binding);
-			return true;
-		}
-	}
-
-	return false;
-}
-
-static bool binding_matches_keycodes(struct wlr_keyboard *keyboard,
-		struct sway_binding *binding, struct wlr_event_keyboard_key *event) {
-	assert(binding->bindcode);
-
-	uint32_t keycode = event->keycode + 8;
-
-	if (!binding_matches_key_state(binding, event->state)) {
-		return false;
-	}
-
-	uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard);
-	if (modifiers ^ binding->modifiers) {
-		return false;
-	}
-
-	// on release, the released key must be in the binding
-	if (event->state == WLR_KEY_RELEASED) {
-		bool found = false;
-		for (int i = 0; i < binding->keys->length; ++i) {
-			uint32_t binding_keycode = *(uint32_t*)binding->keys->items[i] + 8;
-			if (binding_keycode == keycode) {
-				found = true;
-				break;
-			}
-		}
-		if (!found) {
-			return false;
-		}
-	}
-
-	// every keycode in the binding must be present in the pressed keys on the
-	// keyboard
-	for (int i = 0; i < binding->keys->length; ++i) {
-		uint32_t binding_keycode = *(uint32_t*)binding->keys->items[i] + 8;
-		if (event->state == WLR_KEY_RELEASED && keycode == binding_keycode) {
-			continue;
-		}
-
-		bool found = false;
-		for (size_t j = 0; j < keyboard->num_keycodes; ++j) {
-			xkb_keycode_t keycode = keyboard->keycodes[j] + 8;
-			if (keycode == binding_keycode) {
-				found = true;
-				break;
-			}
-		}
-
-		if (!found) {
-			return false;
-		}
-	}
-
-	// every keycode pressed on the keyboard must be present within the binding
-	// keys (unless it is a modifier)
-	for (size_t i = 0; i < keyboard->num_keycodes; ++i) {
-		xkb_keycode_t keycode = keyboard->keycodes[i] + 8;
-		bool found = false;
-		for (int j = 0; j < binding->keys->length; ++j) {
-			uint32_t binding_keycode = *(uint32_t*)binding->keys->items[j] + 8;
-			if (binding_keycode == keycode) {
-				found = true;
-				break;
-			}
-		}
-
-		if (!found) {
-			if (!binding->modifiers) {
-				return false;
-			}
-
-			// check if it is a modifier, which we know matched from the check
-			// above
-			const xkb_keysym_t *keysyms;
-			int num_keysyms =
-				xkb_state_key_get_syms(keyboard->xkb_state,
-					keycode, &keysyms);
-			if (num_keysyms != 1 || !keysym_is_modifier(keysyms[0])) {
-				return false;
-			}
-		}
-	}
-
-	return true;
-}
-
-/**
- * Execute keyboard bindings bound with `bindcode` for the given keyboard state.
- *
- * Returns true if the keysym was handled by a binding and false if the event
- * should be propagated to clients.
- */
-static bool keyboard_execute_bindcode(struct sway_keyboard *keyboard,
-		struct wlr_event_keyboard_key *event) {
-	struct wlr_keyboard *wlr_keyboard =
-		keyboard->seat_device->input_device->wlr_device->keyboard;
-	list_t *keycode_bindings = config->current_mode->keycode_bindings;
-	for (int i = 0; i < keycode_bindings->length; ++i) {
-		struct sway_binding *binding = keycode_bindings->items[i];
-		if (binding_matches_keycodes(wlr_keyboard, binding, event)) {
-			keyboard_execute_command(keyboard, binding);
 			return true;
 		}
 	}
@@ -326,66 +216,115 @@ static size_t keyboard_keysyms_raw(struct sway_keyboard *keyboard,
 static void handle_keyboard_key(struct wl_listener *listener, void *data) {
 	struct sway_keyboard *keyboard =
 		wl_container_of(listener, keyboard, keyboard_key);
-	struct wlr_seat *wlr_seat = keyboard->seat_device->sway_seat->wlr_seat;
+	struct sway_seat* seat = keyboard->seat_device->sway_seat;
+	struct wlr_seat *wlr_seat = seat->wlr_seat;
 	struct wlr_input_device *wlr_device =
 		keyboard->seat_device->input_device->wlr_device;
+	char *device_identifier = input_device_get_identifier(wlr_device);
+	wlr_idle_notify_activity(server.idle, wlr_seat);
 	struct wlr_event_keyboard_key *event = data;
+	bool input_inhibited = seat->exclusive_client != NULL;
 
+	// Identify new keycode, raw keysym(s), and translated keysym(s)
 	xkb_keycode_t keycode = event->keycode + 8;
-	bool handled = false;
 
-	// handle keycodes
-	handled = keyboard_execute_bindcode(keyboard, event);
-
-	// handle translated keysyms
-	if (!handled && event->state == WLR_KEY_RELEASED) {
-		handled = keyboard_execute_bindsym(keyboard,
-			keyboard->pressed_keysyms_translated,
-			keyboard->modifiers_translated,
-			event->state);
-	}
 	const xkb_keysym_t *translated_keysyms;
+	uint32_t translated_modifiers;
 	size_t translated_keysyms_len =
 		keyboard_keysyms_translated(keyboard, keycode, &translated_keysyms,
-			&keyboard->modifiers_translated);
-	pressed_keysyms_update(keyboard->pressed_keysyms_translated,
-		translated_keysyms, translated_keysyms_len, event->state);
-	if (!handled && event->state == WLR_KEY_PRESSED) {
-		handled = keyboard_execute_bindsym(keyboard,
-			keyboard->pressed_keysyms_translated,
-			keyboard->modifiers_translated,
-			event->state);
+			&translated_modifiers);
+
+	const xkb_keysym_t *raw_keysyms;
+	uint32_t raw_modifiers;
+	size_t raw_keysyms_len =
+		keyboard_keysyms_raw(keyboard, keycode, &raw_keysyms, &raw_modifiers);
+
+	uint32_t code_modifiers = wlr_keyboard_get_modifiers(wlr_device->keyboard);
+
+	// Update shortcut model state
+	update_shortcut_state(&keyboard->state_keycodes, event,
+			(uint32_t)keycode, code_modifiers);
+	for (size_t i = 0; i < translated_keysyms_len; ++i) {
+		update_shortcut_state(&keyboard->state_keysyms_translated,
+				event, (uint32_t)translated_keysyms[i],
+				code_modifiers);
+	}
+	for (size_t i = 0; i < raw_keysyms_len; ++i) {
+		update_shortcut_state(&keyboard->state_keysyms_raw,
+				event, (uint32_t)raw_keysyms[i],
+				code_modifiers);
 	}
 
-	// Handle raw keysyms
-	if (!handled && event->state == WLR_KEY_RELEASED) {
-		handled = keyboard_execute_bindsym(keyboard,
-			keyboard->pressed_keysyms_raw, keyboard->modifiers_raw,
-			event->state);
+	bool handled = false;
+
+	// Identify active release binding
+	struct sway_binding *binding_released = NULL;
+	get_active_binding(&keyboard->state_keycodes,
+			config->current_mode->keycode_bindings, &binding_released,
+			code_modifiers, true, input_inhibited, device_identifier);
+	get_active_binding(&keyboard->state_keysyms_translated,
+			config->current_mode->keysym_bindings, &binding_released,
+			translated_modifiers, true, input_inhibited, device_identifier);
+	get_active_binding(&keyboard->state_keysyms_raw,
+			config->current_mode->keysym_bindings, &binding_released,
+			raw_modifiers, true, input_inhibited, device_identifier);
+
+	// Execute stored release binding once no longer active
+	if (keyboard->held_binding && binding_released != keyboard->held_binding &&
+			event->state == WLR_KEY_RELEASED) {
+		seat_execute_command(seat, keyboard->held_binding);
+		handled = true;
 	}
-	const xkb_keysym_t *raw_keysyms;
-	size_t raw_keysyms_len =
-		keyboard_keysyms_raw(keyboard, keycode, &raw_keysyms, &keyboard->modifiers_raw);
-	pressed_keysyms_update(keyboard->pressed_keysyms_raw, raw_keysyms,
-		raw_keysyms_len, event->state);
-	if (!handled && event->state == WLR_KEY_PRESSED) {
-		handled = keyboard_execute_bindsym(keyboard,
-			keyboard->pressed_keysyms_raw, keyboard->modifiers_raw,
-			event->state);
+	if (binding_released != keyboard->held_binding) {
+		keyboard->held_binding = NULL;
+	}
+	if (binding_released && event->state == WLR_KEY_PRESSED) {
+		keyboard->held_binding = binding_released;
+	}
+
+	// Identify and execute active pressed binding
+	struct sway_binding *binding = NULL;
+	if (event->state == WLR_KEY_PRESSED) {
+		get_active_binding(&keyboard->state_keycodes,
+				config->current_mode->keycode_bindings, &binding,
+				code_modifiers, false, input_inhibited, device_identifier);
+		get_active_binding(&keyboard->state_keysyms_translated,
+				config->current_mode->keysym_bindings, &binding,
+				translated_modifiers, false, input_inhibited,
+				device_identifier);
+		get_active_binding(&keyboard->state_keysyms_raw,
+				config->current_mode->keysym_bindings, &binding,
+				raw_modifiers, false, input_inhibited, device_identifier);
+
+		if (binding) {
+			seat_execute_command(seat, binding);
+			handled = true;
+		}
+	}
+
+	// Set up (or clear) keyboard repeat for a pressed binding
+	if (binding && wlr_device->keyboard->repeat_info.delay > 0) {
+		keyboard->repeat_binding = binding;
+		if (wl_event_source_timer_update(keyboard->key_repeat_source,
+				wlr_device->keyboard->repeat_info.delay) < 0) {
+			wlr_log(WLR_DEBUG, "failed to set key repeat timer");
+		}
+	} else if (keyboard->repeat_binding) {
+		keyboard->repeat_binding = NULL;
+		if (wl_event_source_timer_update(keyboard->key_repeat_source, 0) < 0) {
+			wlr_log(WLR_DEBUG, "failed to disarm key repeat timer");
+		}
 	}
 
 	// Compositor bindings
 	if (!handled && event->state == WLR_KEY_PRESSED) {
-		handled =
-			keyboard_execute_compositor_binding(keyboard,
-				keyboard->pressed_keysyms_translated,
-				keyboard->modifiers_translated,
+		handled = keyboard_execute_compositor_binding(
+				keyboard, translated_keysyms, translated_modifiers,
 				translated_keysyms_len);
 	}
 	if (!handled && event->state == WLR_KEY_PRESSED) {
-		handled =
-			keyboard_execute_compositor_binding(keyboard,
-				keyboard->pressed_keysyms_raw, keyboard->modifiers_raw,
+		handled = keyboard_execute_compositor_binding(
+				keyboard, raw_keysyms, raw_modifiers,
 				raw_keysyms_len);
 	}
 
@@ -393,6 +332,43 @@ static void handle_keyboard_key(struct wl_listener *listener, void *data) {
 		wlr_seat_set_keyboard(wlr_seat, wlr_device);
 		wlr_seat_keyboard_notify_key(wlr_seat, event->time_msec,
 				event->keycode, event->state);
+	}
+
+	transaction_commit_dirty();
+
+	free(device_identifier);
+}
+
+static int handle_keyboard_repeat(void *data) {
+	struct sway_keyboard *keyboard = (struct sway_keyboard *)data;
+	struct wlr_keyboard *wlr_device =
+			keyboard->seat_device->input_device->wlr_device->keyboard;
+	if (keyboard->repeat_binding) {
+		if (wlr_device->repeat_info.rate > 0) {
+			// We queue the next event first, as the command might cancel it
+			if (wl_event_source_timer_update(keyboard->key_repeat_source,
+					1000 / wlr_device->repeat_info.rate) < 0) {
+				wlr_log(WLR_DEBUG, "failed to update key repeat timer");
+			}
+		}
+
+		seat_execute_command(keyboard->seat_device->sway_seat,
+				keyboard->repeat_binding);
+		transaction_commit_dirty();
+	}
+	return 0;
+}
+
+static void determine_bar_visibility(uint32_t modifiers) {
+	for (int i = 0; i < config->bars->length; ++i) {
+		struct bar_config *bar = config->bars->items[i];
+		if (strcmp(bar->mode, bar->hidden_state) == 0) { // both are "hide"
+			bool should_be_visible = (~modifiers & bar->modifier) == 0;
+			if (bar->visible_by_modifier != should_be_visible) {
+				bar->visible_by_modifier = should_be_visible;
+				ipc_event_bar_state_update(bar);
+			}
+		}
 	}
 }
 
@@ -405,6 +381,9 @@ static void handle_keyboard_modifiers(struct wl_listener *listener,
 		keyboard->seat_device->input_device->wlr_device;
 	wlr_seat_set_keyboard(wlr_seat, wlr_device);
 	wlr_seat_keyboard_notify_modifiers(wlr_seat, &wlr_device->keyboard->modifiers);
+
+	uint32_t modifiers = wlr_keyboard_get_modifiers(wlr_device->keyboard);
+	determine_bar_visibility(modifiers);
 }
 
 struct sway_keyboard *sway_keyboard_create(struct sway_seat *seat,
@@ -420,6 +399,9 @@ struct sway_keyboard *sway_keyboard_create(struct sway_seat *seat,
 
 	wl_list_init(&keyboard->keyboard_key.link);
 	wl_list_init(&keyboard->keyboard_modifiers.link);
+
+	keyboard->key_repeat_source = wl_event_loop_add_timer(server.wl_event_loop,
+			handle_keyboard_repeat, keyboard);
 
 	return keyboard;
 }
@@ -470,7 +452,7 @@ void sway_keyboard_configure(struct sway_keyboard *keyboard) {
 		xkb_keymap_new_from_names(context, &rules, XKB_KEYMAP_COMPILE_NO_FLAGS);
 
 	if (!keymap) {
-		wlr_log(L_DEBUG, "cannot configure keyboard: keymap does not exist");
+		wlr_log(WLR_DEBUG, "cannot configure keyboard: keymap does not exist");
 		xkb_context_unref(context);
 		return;
 	}
@@ -479,7 +461,38 @@ void sway_keyboard_configure(struct sway_keyboard *keyboard) {
 	keyboard->keymap = keymap;
 	wlr_keyboard_set_keymap(wlr_device->keyboard, keyboard->keymap);
 
-	wlr_keyboard_set_repeat_info(wlr_device->keyboard, 25, 600);
+	xkb_mod_mask_t locked_mods = 0;
+	if (input_config && input_config->xkb_numlock > 0) {
+		xkb_mod_index_t mod_index = xkb_map_mod_get_index(keymap, XKB_MOD_NAME_NUM);
+		if (mod_index != XKB_MOD_INVALID) {
+		       locked_mods |= (uint32_t)1 << mod_index;
+		}
+	}
+	if (input_config && input_config->xkb_capslock > 0) {
+		xkb_mod_index_t mod_index = xkb_map_mod_get_index(keymap, XKB_MOD_NAME_CAPS);
+		if (mod_index != XKB_MOD_INVALID) {
+		       locked_mods |= (uint32_t)1 << mod_index;
+		}
+	}
+	if (locked_mods) {
+		wlr_keyboard_notify_modifiers(wlr_device->keyboard, 0, 0, locked_mods, 0);
+		uint32_t leds = 0;
+		for (uint32_t i = 0; i < WLR_LED_COUNT; ++i) {
+			if (xkb_state_led_index_is_active(wlr_device->keyboard->xkb_state,
+					wlr_device->keyboard->led_indexes[i])) {
+				leds |= (1 << i);
+			}
+		}
+		wlr_keyboard_led_update(wlr_device->keyboard, leds);
+	}
+
+	if (input_config && input_config->repeat_delay != INT_MIN
+			&& input_config->repeat_rate != INT_MIN) {
+		wlr_keyboard_set_repeat_info(wlr_device->keyboard,
+				input_config->repeat_rate, input_config->repeat_delay);
+	} else {
+		wlr_keyboard_set_repeat_info(wlr_device->keyboard, 25, 600);
+	}
 	xkb_context_unref(context);
 	struct wlr_seat *seat = keyboard->seat_device->sway_seat->wlr_seat;
 	wlr_seat_set_keyboard(seat, wlr_device);
@@ -489,7 +502,7 @@ void sway_keyboard_configure(struct sway_keyboard *keyboard) {
 	keyboard->keyboard_key.notify = handle_keyboard_key;
 
 	wl_list_remove(&keyboard->keyboard_modifiers.link);
-	wl_signal_add( &wlr_device->keyboard->events.modifiers,
+	wl_signal_add(&wlr_device->keyboard->events.modifiers,
 		&keyboard->keyboard_modifiers);
 	keyboard->keyboard_modifiers.notify = handle_keyboard_modifiers;
 }
@@ -498,7 +511,11 @@ void sway_keyboard_destroy(struct sway_keyboard *keyboard) {
 	if (!keyboard) {
 		return;
 	}
+	if (keyboard->keymap) {
+		xkb_keymap_unref(keyboard->keymap);
+	}
 	wl_list_remove(&keyboard->keyboard_key.link);
 	wl_list_remove(&keyboard->keyboard_modifiers.link);
+	wl_event_source_remove(keyboard->key_repeat_source);
 	free(keyboard);
 }

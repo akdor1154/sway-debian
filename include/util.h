@@ -2,8 +2,9 @@
 #define _SWAY_UTIL_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <unistd.h>
-#include <sys/types.h> 
+#include <wlr/types/wlr_output_layout.h>
 #include <xkbcommon/xkbcommon.h>
 
 /**
@@ -51,15 +52,19 @@ pid_t get_parent_pid(pid_t pid);
 uint32_t parse_color(const char *color);
 
 /**
- * Given a path string, recurseively resolves any symlinks to their targets
- * (which may be a file, directory) and returns the result.
- * argument is returned. Caller must free the returned buffer.
- * If an error occures, if the path does not exist or if the path corresponds
- * to a dangling symlink, NULL is returned.
+ * Given a string that represents a boolean, return the boolean value. This
+ * function also takes in the current boolean value to support toggling. If
+ * toggling is not desired, pass in true for current so that toggling values
+ * get parsed as not true.
  */
-char* resolve_path(const char* path);
+bool parse_boolean(const char *boolean, bool current);
 
-char *b64_encode(const char* binaryData, size_t len, size_t *flen);
-unsigned char *b64_decode(const char *ascii, size_t len, size_t *flen);
+/**
+ * Given a string that represents a floating point value, return a float.
+ * Returns NAN on error.
+ */
+float parse_float(const char *value);
+
+enum wlr_direction opposite_direction(enum wlr_direction d);
 
 #endif

@@ -15,13 +15,16 @@
 
 types=(
 'get_workspaces'
+'get_seats'
 'get_inputs'
 'get_outputs'
 'get_tree'
 'get_marks'
 'get_bar_config'
 'get_version'
-'get_clipboard'
+'get_binding_modes'
+'get_config'
+'send_tick'
 )
 
 _arguments -s \

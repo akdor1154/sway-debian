@@ -9,9 +9,17 @@ project(
 	],
 )
 
-add_project_arguments('-Wno-unused-parameter', language: 'c')
-add_project_arguments('-Wno-unused-function', language: 'c')
-add_project_arguments('-Wno-unused-result', language: 'c')
+add_project_arguments(
+	[
+		'-DWL_HIDE_DEPRECATED',
+		'-DWLR_USE_UNSTABLE',
+
+		'-Wno-unused-parameter',
+		'-Wno-unused-result',
+		'-Wundef',
+	],
+	language: 'c',
+)
 
 cc = meson.get_compiler('c')
 
@@ -20,6 +28,12 @@ datadir = get_option('datadir')
 sysconfdir = get_option('sysconfdir')
 prefix = get_option('prefix')
 
+if is_freebsd
+	add_project_arguments('-D_C11_SOURCE', language: 'c')
+endif
+
+swayidle_deps = []
+
 jsonc          = dependency('json-c', version: '>=0.13')
 pcre           = dependency('libpcre')
 wlroots        = dependency('wlroots', fallback: ['wlroots', 'wlroots'])
@@ -27,52 +41,66 @@ wayland_server = dependency('wayland-server')
 wayland_client = dependency('wayland-client')
 wayland_cursor = dependency('wayland-cursor')
 wayland_egl    = dependency('wayland-egl')
-wayland_protos = dependency('wayland-protocols')
+wayland_protos = dependency('wayland-protocols', version: '>=1.14')
 xkbcommon      = dependency('xkbcommon')
 cairo          = dependency('cairo')
 pango          = dependency('pango')
 pangocairo     = dependency('pangocairo')
 gdk_pixbuf     = dependency('gdk-pixbuf-2.0', required: false)
 pixman         = dependency('pixman-1')
-libcap         = dependency('libcap')
-libinput       = dependency('libinput')
-libpam         = cc.find_library('libpam')
+libinput       = dependency('libinput', version: '>=1.6.0')
+libpam         = cc.find_library('pam', required: false)
+crypt          = cc.find_library('crypt', required: false)
+systemd        = dependency('libsystemd', required: false)
+elogind        = dependency('libelogind', required: false)
 math           = cc.find_library('m')
 rt             = cc.find_library('rt')
-git = find_program('git', required: false)
-a2x = find_program('a2x', required: false)
+git            = find_program('git', required: false)
 
 conf_data = configuration_data()
 
-if gdk_pixbuf.found()
-	conf_data.set('HAVE_GDK_PIXBUF', true)
+conf_data.set10('HAVE_XWAYLAND', get_option('enable-xwayland'))
+if get_option('enable-xwayland')
+	xcb = dependency('xcb')
 endif
 
-if a2x.found()
+conf_data.set10('HAVE_GDK_PIXBUF', gdk_pixbuf.found())
+conf_data.set10('HAVE_SYSTEMD', systemd.found())
+conf_data.set10('HAVE_ELOGIND', elogind.found())
+
+if not systemd.found() and not elogind.found()
+	warning('The sway binary must be setuid when compiled without (e)logind')
+	warning('You must do this manually post-install: chmod a+s /path/to/sway')
+endif
+
+scdoc = find_program('scdoc', required: false)
+
+if scdoc.found()
+	sh = find_program('sh')
 	mandir = get_option('mandir')
 	man_files = [
-		'sway/sway.1.txt',
-		'sway/sway.5.txt',
-		'sway/sway-bar.5.txt',
-		'sway/sway-input.5.txt',
-		'sway/sway-security.7.txt',
-		'swaymsg/swaymsg.1.txt',
+		'sway/sway.1.scd',
+		'sway/sway.5.scd',
+		'sway/sway-bar.5.scd',
+		'sway/sway-input.5.scd',
+		'sway/sway-output.5.scd',
+		'swaylock/swaylock.1.scd',
+		'swaymsg/swaymsg.1.scd',
+		'swayidle/swayidle.1.scd',
+		'swaynag/swaynag.1.scd',
+		'swaynag/swaynag.5.scd',
 	]
 	foreach filename : man_files
 		topic = filename.split('.')[-3].split('/')[-1]
 		section = filename.split('.')[-2]
+		output = '@0@.@1@'.format(topic, section)
 
 		custom_target(
-			'man-@0@-@1@'.format(topic, section),
+			output,
 			input: filename,
-			output: '@BASENAME@',
+			output: output,
 			command: [
-				a2x,
-				'--no-xmllint',
-				'--doctype', 'manpage',
-				'--format', 'manpage',
-				'--destination-dir', meson.current_build_dir(),
-				'@INPUT@'
+				sh, '-c', '@0@ < @INPUT@ > @1@'.format(scdoc.path(), output)
 			],
 			install: true,
 			install_dir: '@0@/man@1@'.format(mandir, section)
@@ -80,9 +108,9 @@ if a2x.found()
 	endforeach
 endif
 
-add_project_arguments('-DSYSCONFDIR="/@0@"'.format(sysconfdir), language : 'c')
+add_project_arguments('-DSYSCONFDIR="/@0@"'.format(join_paths(prefix, sysconfdir)), language : 'c')
 
-version = get_option('sway_version')
+version = get_option('sway-version')
 if version != ''
 	version = '"@0@"'.format(version)
 else
@@ -96,6 +124,17 @@ else
 endif
 add_project_arguments('-DSWAY_VERSION=@0@'.format(version), language: 'c')
 
+if get_option('use_rpath')
+	if get_option('custom_rpath') == ''
+		# default to platform specific libdir, one level up from the binary
+		rpathdir = join_paths('$ORIGIN', '..', '$LIB')
+	else
+		rpathdir = get_option('custom_rpath')
+	endif
+else
+	rpathdir = ''
+endif
+
 sway_inc = include_directories('include')
 
 subdir('include')
@@ -107,12 +146,14 @@ subdir('swaymsg')
 subdir('client')
 subdir('swaybg')
 subdir('swaybar')
+subdir('swayidle')
+subdir('swaynag')
 subdir('swaylock')
 
 config = configuration_data()
-config.set('sysconfdir', join_paths(prefix, sysconfdir))
 config.set('datadir', join_paths(prefix, datadir))
 config.set('prefix', prefix)
+config.set('sysconfdir', join_paths(prefix, sysconfdir))
 
 configure_file(
 	configuration: config,
@@ -142,7 +183,7 @@ install_data(
 	install_dir: datadir + '/wayland-sessions'
 )
 
-if (get_option('default_wallpaper'))
+if (get_option('default-wallpaper'))
 	wallpaper_files = files(
 		'assets/Sway_Wallpaper_Blue_768x1024.png',
 		'assets/Sway_Wallpaper_Blue_768x1024_Portrait.png',
@@ -158,14 +199,38 @@ if (get_option('default_wallpaper'))
 	install_data(wallpaper_files, install_dir: wallpaper_install_dir)
 endif
 
-if (get_option('zsh_completions'))
+if (get_option('zsh-completions'))
 	zsh_files = files(
 		'completions/zsh/_sway',
-		'completions/zsh/_swaygrab',
 		'completions/zsh/_swaylock',
 		'completions/zsh/_swaymsg',
 	)
 	zsh_install_dir = datadir + '/zsh/site-functions'
 
 	install_data(zsh_files, install_dir: zsh_install_dir)
+endif
+
+if (get_option('bash-completions'))
+	bash_files = files(
+		'completions/bash/sway',
+		'completions/bash/swayidle',
+		'completions/bash/swaylock',
+		'completions/bash/swaymsg',
+	)
+	bash_install_dir = datadir + '/bash-completion/completions'
+
+	install_data(bash_files, install_dir: bash_install_dir)
+endif
+
+if (get_option('fish-completions'))
+	fish_files = files(
+		'completions/fish/sway.fish',
+		'completions/fish/swayidle.fish',
+		'completions/fish/swaylock.fish',
+		'completions/fish/swaymsg.fish',
+		'completions/fish/swaynag.fish',
+	)
+	fish_install_dir = datadir + '/fish/completions'
+
+	install_data(fish_files, install_dir: fish_install_dir)
 endif

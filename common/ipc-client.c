@@ -25,6 +25,7 @@ char *get_socketpath(void) {
 		if (line && *line) {
 			return line;
 		}
+		free(line);
 	}
 	const char *i3sock = getenv("I3SOCK");
 	if (i3sock) {
@@ -37,6 +38,7 @@ char *get_socketpath(void) {
 		if (line && *line) {
 			return line;
 		}
+		free(line);
 	}
 	return NULL;
 }
@@ -48,7 +50,7 @@ int ipc_open_socket(const char *socket_path) {
 		sway_abort("Unable to open Unix socket");
 	}
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path));
+	strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
 	addr.sun_path[sizeof(addr.sun_path) - 1] = 0;
 	int l = sizeof(struct sockaddr_un);
 	if (connect(socketfd, (struct sockaddr *)&addr, l) == -1) {
@@ -76,8 +78,8 @@ struct ipc_response *ipc_recv_response(int socketfd) {
 	}
 
 	total = 0;
-	response->size = data32[0];
-	response->type = data32[1];
+	memcpy(&response->size, &data32[0], sizeof(data32[0]));
+	memcpy(&response->type, &data32[1], sizeof(data32[1]));
 	char *payload = malloc(response->size + 1);
 	if (!payload) {
 		goto error_2;
@@ -97,7 +99,7 @@ struct ipc_response *ipc_recv_response(int socketfd) {
 error_2:
 	free(response);
 error_1:
-	wlr_log(L_ERROR, "Unable to allocate memory for IPC response");
+	wlr_log(WLR_ERROR, "Unable to allocate memory for IPC response");
 	return NULL;
 }
 
@@ -110,8 +112,8 @@ char *ipc_single_command(int socketfd, uint32_t type, const char *payload, uint3
 	char data[ipc_header_size];
 	uint32_t *data32 = (uint32_t *)(data + sizeof(ipc_magic));
 	memcpy(data, ipc_magic, sizeof(ipc_magic));
-	data32[0] = *len;
-	data32[1] = type;
+	memcpy(&data32[0], len, sizeof(*len));
+	memcpy(&data32[1], &type, sizeof(type));
 
 	if (write(socketfd, data, ipc_header_size) == -1) {
 		sway_abort("Unable to send IPC header");

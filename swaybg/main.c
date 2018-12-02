@@ -17,6 +17,7 @@ struct swaybg_args {
 	int output_idx;
 	const char *path;
 	enum background_mode mode;
+	const char *fallback;
 };
 
 struct swaybg_context {
@@ -48,7 +49,7 @@ struct swaybg_state {
 bool is_valid_color(const char *color) {
 	int len = strlen(color);
 	if (len != 7 || color[0] != '#') {
-		wlr_log(L_ERROR, "%s is not a valid color for swaybg. "
+		wlr_log(WLR_ERROR, "%s is not a valid color for swaybg. "
 				"Color should be specified as #rrggbb (no alpha).", color);
 		return false;
 	}
@@ -68,11 +69,22 @@ static void render_frame(struct swaybg_state *state) {
 		buffer_height = state->height * state->scale;
 	state->current_buffer = get_next_buffer(state->shm,
 			state->buffers, buffer_width, buffer_height);
+	if (!state->current_buffer) {
+		return;
+	}
 	cairo_t *cairo = state->current_buffer->cairo;
+	cairo_save(cairo);
+	cairo_set_operator(cairo, CAIRO_OPERATOR_CLEAR);
+	cairo_paint(cairo);
+	cairo_restore(cairo);
 	if (state->args->mode == BACKGROUND_MODE_SOLID_COLOR) {
 		cairo_set_source_u32(cairo, state->context.color);
 		cairo_paint(cairo);
 	} else {
+		if (state->args->fallback && state->context.color) {
+			cairo_set_source_u32(cairo, state->context.color);
+			cairo_paint(cairo);
+		}
 		render_background_image(cairo, state->context.image,
 				state->args->mode, buffer_width, buffer_height);
 	}
@@ -87,6 +99,9 @@ static bool prepare_context(struct swaybg_state *state) {
 	if (state->args->mode == BACKGROUND_MODE_SOLID_COLOR) {
 		state->context.color = parse_color(state->args->path);
 		return is_valid_color(state->args->path);
+	}
+	if (state->args->fallback && is_valid_color(state->args->fallback)) {
+		state->context.color = parse_color(state->args->fallback);
 	}
 	if (!(state->context.image = load_background_image(state->args->path))) {
 		return false;
@@ -113,7 +128,7 @@ static void layer_surface_closed(void *data,
 	state->run_display = false;
 }
 
-struct zwlr_layer_surface_v1_listener layer_surface_listener = {
+static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
 	.configure = layer_surface_configure,
 	.closed = layer_surface_closed,
 };
@@ -141,7 +156,7 @@ static void output_scale(void *data, struct wl_output *output, int32_t factor) {
 	}
 }
 
-struct wl_output_listener output_listener = {
+static const struct wl_output_listener output_listener = {
 	.geometry = output_geometry,
 	.mode = output_mode,
 	.done = output_done,
@@ -185,10 +200,10 @@ int main(int argc, const char **argv) {
 	struct swaybg_args args = {0};
 	struct swaybg_state state = {0};
 	state.args = &args;
-	wlr_log_init(L_DEBUG, NULL);
+	wlr_log_init(WLR_DEBUG, NULL);
 
-	if (argc != 4) {
-		wlr_log(L_ERROR, "Do not run this program manually. "
+	if (argc < 4 || argc > 5) {
+		wlr_log(WLR_ERROR, "Do not run this program manually. "
 				"See man 5 sway and look for output options.");
 		return 1;
 	}
@@ -199,11 +214,20 @@ int main(int argc, const char **argv) {
 	if (args.mode == BACKGROUND_MODE_INVALID) {
 		return 1;
 	}
+
+	args.fallback = argc == 5 ? argv[4] : NULL;
+
 	if (!prepare_context(&state)) {
 		return 1;
 	}
 
-	assert(state.display = wl_display_connect(NULL));
+	state.display = wl_display_connect(NULL);
+	if (!state.display) {
+		wlr_log(WLR_ERROR, "Unable to connect to the compositor. "
+				"If your compositor is running, check or set the "
+				"WAYLAND_DISPLAY environment variable.");
+		return 1;
+	}
 
 	struct wl_registry *registry = wl_display_get_registry(state.display);
 	wl_registry_add_listener(registry, &registry_listener, &state);
@@ -213,9 +237,11 @@ int main(int argc, const char **argv) {
 	// Second roundtrip to get output properties
 	wl_display_roundtrip(state.display);
 
-	assert(state.surface = wl_compositor_create_surface(state.compositor));
+	state.surface = wl_compositor_create_surface(state.compositor);
+	assert(state.surface);
 
-	assert(state.input_region = wl_compositor_create_region(state.compositor));
+	state.input_region = wl_compositor_create_region(state.compositor);
+	assert(state.input_region);
 	wl_surface_set_input_region(state.surface, state.input_region);
 
 	state.layer_surface = zwlr_layer_shell_v1_get_layer_surface(

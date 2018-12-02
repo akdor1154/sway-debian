@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "readline.h"
 #include "log.h"
 #include <stdlib.h>
@@ -8,7 +9,7 @@ char *read_line(FILE *file) {
 	char *string = malloc(size);
 	char lastChar = '\0';
 	if (!string) {
-		wlr_log(L_ERROR, "Unable to allocate memory for read_line");
+		wlr_log(WLR_ERROR, "Unable to allocate memory for read_line");
 		return NULL;
 	}
 	while (1) {
@@ -29,7 +30,7 @@ char *read_line(FILE *file) {
 			char *new_string = realloc(string, size *= 2);
 			if (!new_string) {
 				free(string);
-				wlr_log(L_ERROR, "Unable to allocate memory for read_line");
+				wlr_log(WLR_ERROR, "Unable to allocate memory for read_line");
 				return NULL;
 			}
 			string = new_string;
@@ -48,27 +49,24 @@ char *read_line(FILE *file) {
 	return string;
 }
 
-char *read_line_buffer(FILE *file, char *string, size_t string_len) {
+char *peek_line(FILE *file, int line_offset, long *position) {
+	long pos = ftell(file);
 	size_t length = 0;
-	if (!string) {
-		return NULL;
-	}
-	while (1) {
-		int c = getc(file);
-		if (c == EOF || c == '\n' || c == '\0') {
+	char *line = NULL;
+	for (int i = 0; i <= line_offset; i++) {
+		ssize_t read = getline(&line, &length, file);
+		if (read < 0) {
+			free(line);
+			line = NULL;
 			break;
 		}
-		if (c == '\r') {
-			continue;
-		}
-		string[length++] = c;
-		if (string_len <= length) {
-			return NULL;
+		if (read > 0 && line[read - 1] == '\n') {
+			line[read - 1] = '\0';
 		}
 	}
-	if (length + 1 == string_len) {
-		return NULL;
+	if (position) {
+		*position = ftell(file);
 	}
-	string[length] = '\0';
-	return string;
+	fseek(file, pos, SEEK_SET);
+	return line;
 }

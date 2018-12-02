@@ -1,7 +1,9 @@
 // See https://i3wm.org/docs/ipc.html for protocol information
-#ifndef __FreeBSD__
-// Any value will hide SOCK_CLOEXEC on FreeBSD (__BSD_VISIBLE=0)
-#define _XOPEN_SOURCE 700
+#define _POSIX_C_SOURCE 200112L
+#ifdef __linux__
+#include <linux/input-event-codes.h>
+#elif __FreeBSD__
+#include <dev/evdev/input-event-codes.h>
 #endif
 #include <assert.h>
 #include <errno.h>
@@ -9,6 +11,7 @@
 #include <json-c/json.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -17,18 +20,26 @@
 #include <unistd.h>
 #include <wayland-server.h>
 #include "sway/commands.h"
+#include "sway/config.h"
+#include "sway/desktop/transaction.h"
 #include "sway/ipc-json.h"
 #include "sway/ipc-server.h"
+#include "sway/output.h"
 #include "sway/server.h"
 #include "sway/input/input-manager.h"
 #include "sway/input/seat.h"
+#include "sway/tree/root.h"
+#include "sway/tree/view.h"
+#include "sway/tree/workspace.h"
 #include "list.h"
 #include "log.h"
+#include "util.h"
 
 static int ipc_socket = -1;
 static struct wl_event_source *ipc_event_source =  NULL;
 static struct sockaddr_un *ipc_sockaddr = NULL;
 static list_t *ipc_client_list = NULL;
+static struct wl_listener ipc_display_destroy;
 
 static const char ipc_magic[] = {'i', '3', '-', 'i', 'p', 'c'};
 
@@ -54,17 +65,43 @@ void ipc_client_disconnect(struct ipc_client *client);
 void ipc_client_handle_command(struct ipc_client *client);
 bool ipc_send_reply(struct ipc_client *client, const char *payload, uint32_t payload_length);
 
+static void handle_display_destroy(struct wl_listener *listener, void *data) {
+	if (ipc_event_source) {
+		wl_event_source_remove(ipc_event_source);
+	}
+	close(ipc_socket);
+	unlink(ipc_sockaddr->sun_path);
+
+	while (ipc_client_list->length) {
+		struct ipc_client *client = ipc_client_list->items[0];
+		ipc_client_disconnect(client);
+	}
+	list_free(ipc_client_list);
+
+	if (ipc_sockaddr) {
+		free(ipc_sockaddr);
+	}
+
+	wl_list_remove(&ipc_display_destroy.link);
+}
+
 void ipc_init(struct sway_server *server) {
-	ipc_socket = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+	ipc_socket = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (ipc_socket == -1) {
 		sway_abort("Unable to create IPC socket");
+	}
+	if (fcntl(ipc_socket, F_SETFD, FD_CLOEXEC) == -1) {
+		sway_abort("Unable to set CLOEXEC on IPC socket");
+	}
+	if (fcntl(ipc_socket, F_SETFL, O_NONBLOCK) == -1) {
+		sway_abort("Unable to set NONBLOCK on IPC socket");
 	}
 
 	ipc_sockaddr = ipc_user_sockaddr();
 
 	// We want to use socket name set by user, not existing socket from another sway instance.
 	if (getenv("SWAYSOCK") != NULL && access(getenv("SWAYSOCK"), F_OK) == -1) {
-		strncpy(ipc_sockaddr->sun_path, getenv("SWAYSOCK"), sizeof(ipc_sockaddr->sun_path));
+		strncpy(ipc_sockaddr->sun_path, getenv("SWAYSOCK"), sizeof(ipc_sockaddr->sun_path) - 1);
 		ipc_sockaddr->sun_path[sizeof(ipc_sockaddr->sun_path) - 1] = 0;
 	}
 
@@ -83,22 +120,11 @@ void ipc_init(struct sway_server *server) {
 
 	ipc_client_list = create_list();
 
+	ipc_display_destroy.notify = handle_display_destroy;
+	wl_display_add_destroy_listener(server->wl_display, &ipc_display_destroy);
+
 	ipc_event_source = wl_event_loop_add_fd(server->wl_event_loop, ipc_socket,
 			WL_EVENT_READABLE, ipc_handle_connection, server);
-}
-
-void ipc_terminate(void) {
-	if (ipc_event_source) {
-		wl_event_source_remove(ipc_event_source);
-	}
-	close(ipc_socket);
-	unlink(ipc_sockaddr->sun_path);
-
-	list_free(ipc_client_list);
-
-	if (ipc_sockaddr) {
-		free(ipc_sockaddr);
-	}
 }
 
 struct sockaddr_un *ipc_user_sockaddr(void) {
@@ -126,32 +152,32 @@ struct sockaddr_un *ipc_user_sockaddr(void) {
 int ipc_handle_connection(int fd, uint32_t mask, void *data) {
 	(void) fd;
 	struct sway_server *server = data;
-	wlr_log(L_DEBUG, "Event on IPC listening socket");
+	wlr_log(WLR_DEBUG, "Event on IPC listening socket");
 	assert(mask == WL_EVENT_READABLE);
 
 	int client_fd = accept(ipc_socket, NULL, NULL);
 	if (client_fd == -1) {
-		wlr_log_errno(L_ERROR, "Unable to accept IPC client connection");
+		wlr_log_errno(WLR_ERROR, "Unable to accept IPC client connection");
 		return 0;
 	}
 
 	int flags;
 	if ((flags = fcntl(client_fd, F_GETFD)) == -1
 			|| fcntl(client_fd, F_SETFD, flags|FD_CLOEXEC) == -1) {
-		wlr_log_errno(L_ERROR, "Unable to set CLOEXEC on IPC client socket");
+		wlr_log_errno(WLR_ERROR, "Unable to set CLOEXEC on IPC client socket");
 		close(client_fd);
 		return 0;
 	}
 	if ((flags = fcntl(client_fd, F_GETFL)) == -1
 			|| fcntl(client_fd, F_SETFL, flags|O_NONBLOCK) == -1) {
-		wlr_log_errno(L_ERROR, "Unable to set NONBLOCK on IPC client socket");
+		wlr_log_errno(WLR_ERROR, "Unable to set NONBLOCK on IPC client socket");
 		close(client_fd);
 		return 0;
 	}
 
 	struct ipc_client *client = malloc(sizeof(struct ipc_client));
 	if (!client) {
-		wlr_log(L_ERROR, "Unable to allocate ipc client");
+		wlr_log(WLR_ERROR, "Unable to allocate ipc client");
 		close(client_fd);
 		return 0;
 	}
@@ -167,12 +193,12 @@ int ipc_handle_connection(int fd, uint32_t mask, void *data) {
 	client->write_buffer_len = 0;
 	client->write_buffer = malloc(client->write_buffer_size);
 	if (!client->write_buffer) {
-		wlr_log(L_ERROR, "Unable to allocate ipc client write buffer");
+		wlr_log(WLR_ERROR, "Unable to allocate ipc client write buffer");
 		close(client_fd);
 		return 0;
 	}
 
-	wlr_log(L_DEBUG, "New client: fd %d", client_fd);
+	wlr_log(WLR_DEBUG, "New client: fd %d", client_fd);
 	list_add(ipc_client_list, client);
 	return 0;
 }
@@ -183,22 +209,22 @@ int ipc_client_handle_readable(int client_fd, uint32_t mask, void *data) {
 	struct ipc_client *client = data;
 
 	if (mask & WL_EVENT_ERROR) {
-		wlr_log(L_ERROR, "IPC Client socket error, removing client");
+		wlr_log(WLR_ERROR, "IPC Client socket error, removing client");
 		ipc_client_disconnect(client);
 		return 0;
 	}
 
 	if (mask & WL_EVENT_HANGUP) {
-		wlr_log(L_DEBUG, "Client %d hung up", client->fd);
+		wlr_log(WLR_DEBUG, "Client %d hung up", client->fd);
 		ipc_client_disconnect(client);
 		return 0;
 	}
 
-	wlr_log(L_DEBUG, "Client %d readable", client->fd);
+	wlr_log(WLR_DEBUG, "Client %d readable", client->fd);
 
 	int read_available;
 	if (ioctl(client_fd, FIONREAD, &read_available) == -1) {
-		wlr_log_errno(L_INFO, "Unable to read IPC socket buffer size");
+		wlr_log_errno(WLR_INFO, "Unable to read IPC socket buffer size");
 		ipc_client_disconnect(client);
 		return 0;
 	}
@@ -220,19 +246,19 @@ int ipc_client_handle_readable(int client_fd, uint32_t mask, void *data) {
 	// Should be fully available, because read_available >= ipc_header_size
 	ssize_t received = recv(client_fd, buf, ipc_header_size, 0);
 	if (received == -1) {
-		wlr_log_errno(L_INFO, "Unable to receive header from IPC client");
+		wlr_log_errno(WLR_INFO, "Unable to receive header from IPC client");
 		ipc_client_disconnect(client);
 		return 0;
 	}
 
 	if (memcmp(buf, ipc_magic, sizeof(ipc_magic)) != 0) {
-		wlr_log(L_DEBUG, "IPC header check failed");
+		wlr_log(WLR_DEBUG, "IPC header check failed");
 		ipc_client_disconnect(client);
 		return 0;
 	}
 
-	client->payload_length = buf32[0];
-	client->current_command = (enum ipc_command_type)buf32[1];
+	memcpy(&client->payload_length, &buf32[0], sizeof(buf32[0]));
+	memcpy(&client->current_command, &buf32[1], sizeof(buf32[1]));
 
 	if (read_available - received >= (long)client->payload_length) {
 		ipc_client_handle_command(client);
@@ -260,32 +286,33 @@ static void ipc_send_event(const char *json_string, enum ipc_command_type event)
 		}
 		client->current_command = event;
 		if (!ipc_send_reply(client, json_string, (uint32_t) strlen(json_string))) {
-			wlr_log_errno(L_INFO, "Unable to send reply to IPC client");
-			ipc_client_disconnect(client);
+			wlr_log_errno(WLR_INFO, "Unable to send reply to IPC client");
+			/* ipc_send_reply destroys client on error, which also
+			 * removes it from the list, so we need to process
+			 * current index again */
+			i--;
 		}
 	}
 }
 
-void ipc_event_workspace(struct sway_container *old,
-		struct sway_container *new, const char *change) {
+void ipc_event_workspace(struct sway_workspace *old,
+		struct sway_workspace *new, const char *change) {
 	if (!ipc_has_event_listeners(IPC_EVENT_WORKSPACE)) {
 		return;
 	}
-	wlr_log(L_DEBUG, "Sending workspace::%s event", change);
+	wlr_log(WLR_DEBUG, "Sending workspace::%s event", change);
 	json_object *obj = json_object_new_object();
 	json_object_object_add(obj, "change", json_object_new_string(change));
-	if (strcmp("focus", change) == 0) {
-		if (old) {
-			json_object_object_add(obj, "old",
-					ipc_json_describe_container_recursive(old));
-		} else {
-			json_object_object_add(obj, "old", NULL);
-		}
+	if (old) {
+		json_object_object_add(obj, "old",
+				ipc_json_describe_node_recursive(&old->node));
+	} else {
+		json_object_object_add(obj, "old", NULL);
 	}
 
 	if (new) {
 		json_object_object_add(obj, "current",
-				ipc_json_describe_container_recursive(new));
+				ipc_json_describe_node_recursive(&new->node));
 	} else {
 		json_object_object_add(obj, "current", NULL);
 	}
@@ -299,10 +326,11 @@ void ipc_event_window(struct sway_container *window, const char *change) {
 	if (!ipc_has_event_listeners(IPC_EVENT_WINDOW)) {
 		return;
 	}
-	wlr_log(L_DEBUG, "Sending window::%s event", change);
+	wlr_log(WLR_DEBUG, "Sending window::%s event", change);
 	json_object *obj = json_object_new_object();
 	json_object_object_add(obj, "change", json_object_new_string(change));
-	json_object_object_add(obj, "container", ipc_json_describe_container_recursive(window));
+	json_object_object_add(obj, "container",
+			ipc_json_describe_node_recursive(&window->node));
 
 	const char *json_string = json_object_to_json_string(obj);
 	ipc_send_event(json_string, IPC_EVENT_WINDOW);
@@ -313,7 +341,7 @@ void ipc_event_barconfig_update(struct bar_config *bar) {
 	if (!ipc_has_event_listeners(IPC_EVENT_BARCONFIG_UPDATE)) {
 		return;
 	}
-	wlr_log(L_DEBUG, "Sending barconfig_update event");
+	wlr_log(WLR_DEBUG, "Sending barconfig_update event");
 	json_object *json = ipc_json_describe_bar_config(bar);
 
 	const char *json_string = json_object_to_json_string(json);
@@ -321,30 +349,146 @@ void ipc_event_barconfig_update(struct bar_config *bar) {
 	json_object_put(json);
 }
 
-void ipc_event_mode(const char *mode) {
+void ipc_event_bar_state_update(struct bar_config *bar) {
+	if (!ipc_has_event_listeners(IPC_EVENT_BAR_STATE_UPDATE)) {
+		return;
+	}
+	wlr_log(WLR_DEBUG, "Sending bar_state_update event");
+
+	json_object *json = json_object_new_object();
+	json_object_object_add(json, "id", json_object_new_string(bar->id));
+	json_object_object_add(json, "visible_by_modifier",
+			json_object_new_boolean(bar->visible_by_modifier));
+
+	const char *json_string = json_object_to_json_string(json);
+	ipc_send_event(json_string, IPC_EVENT_BAR_STATE_UPDATE);
+	json_object_put(json);
+}
+
+void ipc_event_mode(const char *mode, bool pango) {
 	if (!ipc_has_event_listeners(IPC_EVENT_MODE)) {
 		return;
 	}
-	wlr_log(L_DEBUG, "Sending mode::%s event", mode);
+	wlr_log(WLR_DEBUG, "Sending mode::%s event", mode);
 	json_object *obj = json_object_new_object();
 	json_object_object_add(obj, "change", json_object_new_string(mode));
+	json_object_object_add(obj, "pango_markup",
+			json_object_new_boolean(pango));
 
 	const char *json_string = json_object_to_json_string(obj);
 	ipc_send_event(json_string, IPC_EVENT_MODE);
 	json_object_put(obj);
 }
 
+void ipc_event_shutdown(const char *reason) {
+	if (!ipc_has_event_listeners(IPC_EVENT_SHUTDOWN)) {
+		return;
+	}
+	wlr_log(WLR_DEBUG, "Sending shutdown::%s event", reason);
+
+	json_object *json = json_object_new_object();
+	json_object_object_add(json, "change", json_object_new_string(reason));
+
+	const char *json_string = json_object_to_json_string(json);
+	ipc_send_event(json_string, IPC_EVENT_SHUTDOWN);
+	json_object_put(json);
+}
+
+void ipc_event_binding(struct sway_binding *binding) {
+	if (!ipc_has_event_listeners(IPC_EVENT_BINDING)) {
+		return;
+	}
+	wlr_log(WLR_DEBUG, "Sending binding event");
+
+	json_object *json_binding = json_object_new_object();
+	json_object_object_add(json_binding, "command", json_object_new_string(binding->command));
+
+	const char *names[10];
+	int len = get_modifier_names(names, binding->modifiers);
+	json_object *modifiers = json_object_new_array();
+	for (int i = 0; i < len; ++i) {
+		json_object_array_add(modifiers, json_object_new_string(names[i]));
+	}
+	json_object_object_add(json_binding, "event_state_mask", modifiers);
+
+	json_object *input_codes = json_object_new_array();
+	int input_code = 0;
+	json_object *symbols = json_object_new_array();
+	json_object *symbol = NULL;
+
+	if (binding->type == BINDING_KEYCODE) { // bindcode: populate input_codes
+		uint32_t keycode;
+		for (int i = 0; i < binding->keys->length; ++i) {
+			keycode = *(uint32_t *)binding->keys->items[i];
+			json_object_array_add(input_codes, json_object_new_int(keycode));
+			if (i == 0) {
+				input_code = keycode;
+			}
+		}
+	} else { // bindsym/mouse: populate symbols
+		uint32_t keysym;
+		char buffer[64];
+		for (int i = 0; i < binding->keys->length; ++i) {
+			keysym = *(uint32_t *)binding->keys->items[i];
+			if (keysym >= BTN_LEFT && keysym <= BTN_LEFT + 8) {
+				snprintf(buffer, 64, "button%u", keysym - BTN_LEFT + 1);
+			} else if (xkb_keysym_get_name(keysym, buffer, 64) < 0) {
+				continue;
+			}
+
+			json_object *str = json_object_new_string(buffer);
+			if (i == 0) {
+				// str is owned by both symbol and symbols. Make sure
+				// to bump the ref count.
+				json_object_array_add(symbols, json_object_get(str));
+				symbol = str;
+			} else {
+				json_object_array_add(symbols, str);
+			}
+		}
+	}
+
+	json_object_object_add(json_binding, "input_codes", input_codes);
+	json_object_object_add(json_binding, "input_code", json_object_new_int(input_code));
+	json_object_object_add(json_binding, "symbols", symbols);
+	json_object_object_add(json_binding, "symbol", symbol);
+	json_object_object_add(json_binding, "input_type", binding->type == BINDING_MOUSE ?
+			json_object_new_string("mouse") : json_object_new_string("keyboard"));
+
+	json_object *json = json_object_new_object();
+	json_object_object_add(json, "change", json_object_new_string("run"));
+	json_object_object_add(json, "binding", json_binding);
+	const char *json_string = json_object_to_json_string(json);
+	ipc_send_event(json_string, IPC_EVENT_BINDING);
+	json_object_put(json);
+}
+
+static void ipc_event_tick(const char *payload) {
+	if (!ipc_has_event_listeners(IPC_EVENT_TICK)) {
+		return;
+	}
+	wlr_log(WLR_DEBUG, "Sending tick event");
+
+	json_object *json = json_object_new_object();
+	json_object_object_add(json, "first", json_object_new_boolean(false));
+	json_object_object_add(json, "payload", json_object_new_string(payload));
+
+	const char *json_string = json_object_to_json_string(json);
+	ipc_send_event(json_string, IPC_EVENT_TICK);
+	json_object_put(json);
+}
+
 int ipc_client_handle_writable(int client_fd, uint32_t mask, void *data) {
 	struct ipc_client *client = data;
 
 	if (mask & WL_EVENT_ERROR) {
-		wlr_log(L_ERROR, "IPC Client socket error, removing client");
+		wlr_log(WLR_ERROR, "IPC Client socket error, removing client");
 		ipc_client_disconnect(client);
 		return 0;
 	}
 
 	if (mask & WL_EVENT_HANGUP) {
-		wlr_log(L_DEBUG, "Client %d hung up", client->fd);
+		wlr_log(WLR_DEBUG, "Client %d hung up", client->fd);
 		ipc_client_disconnect(client);
 		return 0;
 	}
@@ -353,14 +497,14 @@ int ipc_client_handle_writable(int client_fd, uint32_t mask, void *data) {
 		return 0;
 	}
 
-	wlr_log(L_DEBUG, "Client %d writable", client->fd);
+	wlr_log(WLR_DEBUG, "Client %d writable", client->fd);
 
 	ssize_t written = write(client->fd, client->write_buffer, client->write_buffer_len);
 
 	if (written == -1 && errno == EAGAIN) {
 		return 0;
 	} else if (written == -1) {
-		wlr_log_errno(L_INFO, "Unable to send data from queue to IPC client");
+		wlr_log_errno(WLR_INFO, "Unable to send data from queue to IPC client");
 		ipc_client_disconnect(client);
 		return 0;
 	}
@@ -381,11 +525,9 @@ void ipc_client_disconnect(struct ipc_client *client) {
 		return;
 	}
 
-	if (client->fd != -1) {
-		shutdown(client->fd, SHUT_RDWR);
-	}
+	shutdown(client->fd, SHUT_RDWR);
 
-	wlr_log(L_INFO, "IPC Client %d disconnected", client->fd);
+	wlr_log(WLR_INFO, "IPC Client %d disconnected", client->fd);
 	wl_event_source_remove(client->event_source);
 	if (client->writable_event_source) {
 		wl_event_source_remove(client->writable_event_source);
@@ -400,33 +542,31 @@ void ipc_client_disconnect(struct ipc_client *client) {
 	free(client);
 }
 
-static void ipc_get_workspaces_callback(struct sway_container *workspace,
+static void ipc_get_workspaces_callback(struct sway_workspace *workspace,
 		void *data) {
-	if (workspace->type != C_WORKSPACE) {
-		return;
-	}
-	json_object *workspace_json = ipc_json_describe_container(workspace);
+	json_object *workspace_json = ipc_json_describe_node(&workspace->node);
 	// override the default focused indicator because
 	// it's set differently for the get_workspaces reply
-	struct sway_seat *seat =
-		input_manager_get_default_seat(input_manager);
-	struct sway_container *focused_ws = seat_get_focus(seat);
-	if (focused_ws != NULL && focused_ws->type != C_WORKSPACE) {
-		focused_ws = container_parent(focused_ws, C_WORKSPACE);
-	}
+	struct sway_seat *seat = input_manager_get_default_seat();
+	struct sway_workspace *focused_ws = seat_get_focused_workspace(seat);
 	bool focused = workspace == focused_ws;
 	json_object_object_del(workspace_json, "focused");
 	json_object_object_add(workspace_json, "focused",
 			json_object_new_boolean(focused));
 	json_object_array_add((json_object *)data, workspace_json);
 
-	focused_ws = seat_get_focus_inactive(seat, workspace->parent);
-	if (focused_ws->type != C_WORKSPACE) {
-		focused_ws = container_parent(focused_ws, C_WORKSPACE);
-	}
+	focused_ws = output_get_active_workspace(workspace->output);
 	bool visible = workspace == focused_ws;
 	json_object_object_add(workspace_json, "visible",
 			json_object_new_boolean(visible));
+}
+
+static void ipc_get_marks_callback(struct sway_container *con, void *data) {
+	json_object *marks = (json_object *)data;
+	for (int i = 0; i < con->marks->length; ++i) {
+		char *mark = (char *)con->marks->items[i];
+		json_object_array_add(marks, json_object_new_string(mark));
+	}
 }
 
 void ipc_client_handle_command(struct ipc_client *client) {
@@ -436,7 +576,7 @@ void ipc_client_handle_command(struct ipc_client *client) {
 
 	char *buf = malloc(client->payload_length + 1);
 	if (!buf) {
-		wlr_log_errno(L_INFO, "Unable to allocate IPC payload");
+		wlr_log_errno(WLR_INFO, "Unable to allocate IPC payload");
 		ipc_client_disconnect(client);
 		return;
 	}
@@ -445,7 +585,7 @@ void ipc_client_handle_command(struct ipc_client *client) {
 		ssize_t received = recv(client->fd, buf, client->payload_length, 0);
 		if (received == -1)
 		{
-			wlr_log_errno(L_INFO, "Unable to receive payload from IPC client");
+			wlr_log_errno(WLR_INFO, "Unable to receive payload from IPC client");
 			ipc_client_disconnect(client);
 			free(buf);
 			return;
@@ -453,33 +593,61 @@ void ipc_client_handle_command(struct ipc_client *client) {
 	}
 	buf[client->payload_length] = '\0';
 
-	const char *error_denied = "{ \"success\": false, \"error\": \"Permission denied\" }";
-
+	bool client_valid = true;
 	switch (client->current_command) {
 	case IPC_COMMAND:
 	{
-		config_clear_handler_context(config);
-		struct cmd_results *results = execute_command(buf, NULL);
-		const char *json = cmd_results_to_json(results);
-		char reply[256];
-		int length = snprintf(reply, sizeof(reply), "%s", json);
-		ipc_send_reply(client, reply, (uint32_t) length);
-		free_cmd_results(results);
+		list_t *res_list = execute_command(buf, NULL, NULL);
+		transaction_commit_dirty();
+		char *json = cmd_results_to_json(res_list);
+		int length = strlen(json);
+		client_valid = ipc_send_reply(client, json, (uint32_t)length);
+		free(json);
+		while (res_list->length) {
+			struct cmd_results *results = res_list->items[0];
+			free_cmd_results(results);
+			list_del(res_list, 0);
+		}
+		list_free(res_list);
+		goto exit_cleanup;
+	}
+
+	case IPC_SEND_TICK:
+	{
+		ipc_event_tick(buf);
+		ipc_send_reply(client, "{\"success\": true}", 17);
 		goto exit_cleanup;
 	}
 
 	case IPC_GET_OUTPUTS:
 	{
 		json_object *outputs = json_object_new_array();
-		for (int i = 0; i < root_container.children->length; ++i) {
-			struct sway_container *container = root_container.children->items[i];
-			if (container->type == C_OUTPUT) {
+		for (int i = 0; i < root->outputs->length; ++i) {
+			struct sway_output *output = root->outputs->items[i];
+			json_object *output_json = ipc_json_describe_node(&output->node);
+
+			// override the default focused indicator because it's set
+			// differently for the get_outputs reply
+			struct sway_seat *seat = input_manager_get_default_seat();
+			struct sway_workspace *focused_ws =
+				seat_get_focused_workspace(seat);
+			bool focused = focused_ws && output == focused_ws->output;
+			json_object_object_del(output_json, "focused");
+			json_object_object_add(output_json, "focused",
+				json_object_new_boolean(focused));
+
+			json_object_array_add(outputs, output_json);
+		}
+		struct sway_output *output;
+		wl_list_for_each(output, &root->all_outputs, link) {
+			if (!output->enabled) {
 				json_object_array_add(outputs,
-					ipc_json_describe_container(container));
+						ipc_json_describe_disabled_output(output));
 			}
 		}
 		const char *json_string = json_object_to_json_string(outputs);
-		ipc_send_reply(client, json_string, (uint32_t) strlen(json_string));
+		client_valid =
+			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
 		json_object_put(outputs); // free
 		goto exit_cleanup;
 	}
@@ -487,10 +655,10 @@ void ipc_client_handle_command(struct ipc_client *client) {
 	case IPC_GET_WORKSPACES:
 	{
 		json_object *workspaces = json_object_new_array();
-		container_for_each_descendant_dfs(&root_container,
-				ipc_get_workspaces_callback, workspaces);
+		root_for_each_workspace(ipc_get_workspaces_callback, workspaces);
 		const char *json_string = json_object_to_json_string(workspaces);
-		ipc_send_reply(client, json_string, (uint32_t) strlen(json_string));
+		client_valid =
+			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
 		json_object_put(workspaces); // free
 		goto exit_cleanup;
 	}
@@ -500,11 +668,13 @@ void ipc_client_handle_command(struct ipc_client *client) {
 		// TODO: Check if they're permitted to use these events
 		struct json_object *request = json_tokener_parse(buf);
 		if (request == NULL) {
-			ipc_send_reply(client, "{\"success\": false}", 18);
-			wlr_log_errno(L_INFO, "Failed to read request");
+			const char msg[] = "{\"success\": false}";
+			client_valid = ipc_send_reply(client, msg, strlen(msg));
+			wlr_log(WLR_INFO, "Failed to parse subscribe request");
 			goto exit_cleanup;
 		}
 
+		bool is_tick = false;
 		// parse requested event types
 		for (size_t i = 0; i < json_object_array_length(request); i++) {
 			const char *event_type = json_object_get_string(json_object_array_get_idx(request, i));
@@ -512,24 +682,36 @@ void ipc_client_handle_command(struct ipc_client *client) {
 				client->subscribed_events |= event_mask(IPC_EVENT_WORKSPACE);
 			} else if (strcmp(event_type, "barconfig_update") == 0) {
 				client->subscribed_events |= event_mask(IPC_EVENT_BARCONFIG_UPDATE);
+			} else if (strcmp(event_type, "bar_state_update") == 0) {
+				client->subscribed_events |= event_mask(IPC_EVENT_BAR_STATE_UPDATE);
 			} else if (strcmp(event_type, "mode") == 0) {
 				client->subscribed_events |= event_mask(IPC_EVENT_MODE);
+			} else if (strcmp(event_type, "shutdown") == 0) {
+				client->subscribed_events |= event_mask(IPC_EVENT_SHUTDOWN);
 			} else if (strcmp(event_type, "window") == 0) {
 				client->subscribed_events |= event_mask(IPC_EVENT_WINDOW);
-			} else if (strcmp(event_type, "modifier") == 0) {
-				client->subscribed_events |= event_mask(IPC_EVENT_MODIFIER);
 			} else if (strcmp(event_type, "binding") == 0) {
 				client->subscribed_events |= event_mask(IPC_EVENT_BINDING);
+			} else if (strcmp(event_type, "tick") == 0) {
+				client->subscribed_events |= event_mask(IPC_EVENT_TICK);
+				is_tick = true;
 			} else {
-				ipc_send_reply(client, "{\"success\": false}", 18);
+				const char msg[] = "{\"success\": false}";
+				client_valid = ipc_send_reply(client, msg, strlen(msg));
 				json_object_put(request);
-				wlr_log_errno(L_INFO, "Failed to parse request");
+				wlr_log(WLR_INFO, "Unsupported event type in subscribe request");
 				goto exit_cleanup;
 			}
 		}
 
 		json_object_put(request);
-		ipc_send_reply(client, "{\"success\": true}", 17);
+		const char msg[] = "{\"success\": true}";
+		client_valid = ipc_send_reply(client, msg, strlen(msg));
+		if (is_tick) {
+			client->current_command = IPC_EVENT_TICK;
+			const char tickmsg[] = "{\"first\": true, \"payload\": \"\"}";
+			ipc_send_reply(client, tickmsg, strlen(tickmsg));
+		}
 		goto exit_cleanup;
 	}
 
@@ -537,22 +719,48 @@ void ipc_client_handle_command(struct ipc_client *client) {
 	{
 		json_object *inputs = json_object_new_array();
 		struct sway_input_device *device = NULL;
-		wl_list_for_each(device, &input_manager->devices, link) {
+		wl_list_for_each(device, &server.input->devices, link) {
 			json_object_array_add(inputs, ipc_json_describe_input(device));
 		}
 		const char *json_string = json_object_to_json_string(inputs);
-		ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
+		client_valid =
+			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
 		json_object_put(inputs); // free
+		goto exit_cleanup;
+	}
+
+	case IPC_GET_SEATS:
+	{
+		json_object *seats = json_object_new_array();
+		struct sway_seat *seat = NULL;
+		wl_list_for_each(seat, &server.input->seats, link) {
+			json_object_array_add(seats, ipc_json_describe_seat(seat));
+		}
+		const char *json_string = json_object_to_json_string(seats);
+		client_valid =
+			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
+		json_object_put(seats); // free
 		goto exit_cleanup;
 	}
 
 	case IPC_GET_TREE:
 	{
-		json_object *tree =
-			ipc_json_describe_container_recursive(&root_container);
+		json_object *tree = ipc_json_describe_node_recursive(&root->node);
 		const char *json_string = json_object_to_json_string(tree);
-		ipc_send_reply(client, json_string, (uint32_t) strlen(json_string));
+		client_valid =
+			ipc_send_reply(client, json_string, (uint32_t) strlen(json_string));
 		json_object_put(tree);
+		goto exit_cleanup;
+	}
+
+	case IPC_GET_MARKS:
+	{
+		json_object *marks = json_object_new_array();
+		root_for_each_container(ipc_get_marks_callback, marks);
+		const char *json_string = json_object_to_json_string(marks);
+		client_valid =
+			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
+		json_object_put(marks);
 		goto exit_cleanup;
 	}
 
@@ -560,7 +768,8 @@ void ipc_client_handle_command(struct ipc_client *client) {
 	{
 		json_object *version = ipc_json_get_version();
 		const char *json_string = json_object_to_json_string(version);
-		ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
+		client_valid =
+			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
 		json_object_put(version); // free
 		goto exit_cleanup;
 	}
@@ -575,7 +784,9 @@ void ipc_client_handle_command(struct ipc_client *client) {
 				json_object_array_add(bars, json_object_new_string(bar->id));
 			}
 			const char *json_string = json_object_to_json_string(bars);
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
+			client_valid =
+				ipc_send_reply(client, json_string,
+					(uint32_t)strlen(json_string));
 			json_object_put(bars); // free
 		} else {
 			// Send particular bar's details
@@ -589,27 +800,54 @@ void ipc_client_handle_command(struct ipc_client *client) {
 			}
 			if (!bar) {
 				const char *error = "{ \"success\": false, \"error\": \"No bar with that ID\" }";
-				ipc_send_reply(client, error, (uint32_t)strlen(error));
+				client_valid =
+					ipc_send_reply(client, error, (uint32_t)strlen(error));
 				goto exit_cleanup;
 			}
 			json_object *json = ipc_json_describe_bar_config(bar);
 			const char *json_string = json_object_to_json_string(json);
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
+			client_valid =
+				ipc_send_reply(client, json_string,
+					(uint32_t)strlen(json_string));
 			json_object_put(json); // free
 		}
 		goto exit_cleanup;
 	}
 
-	default:
-		wlr_log(L_INFO, "Unknown IPC command type %i", client->current_command);
+	case IPC_GET_BINDING_MODES:
+	{
+		json_object *modes = json_object_new_array();
+		for (int i = 0; i < config->modes->length; i++) {
+			struct sway_mode *mode = config->modes->items[i];
+			json_object_array_add(modes, json_object_new_string(mode->name));
+		}
+		const char *json_string = json_object_to_json_string(modes);
+		client_valid =
+			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
+		json_object_put(modes); // free
 		goto exit_cleanup;
 	}
 
-	ipc_send_reply(client, error_denied, (uint32_t)strlen(error_denied));
-	wlr_log(L_DEBUG, "Denied IPC client access to %i", client->current_command);
+	case IPC_GET_CONFIG:
+	{
+		json_object *json = json_object_new_object();
+		json_object_object_add(json, "config", json_object_new_string(config->current_config));
+		const char *json_string = json_object_to_json_string(json);
+		client_valid =
+			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
+		json_object_put(json); // free
+		goto exit_cleanup;
+    }
+
+	default:
+		wlr_log(WLR_INFO, "Unknown IPC command type %i", client->current_command);
+		goto exit_cleanup;
+	}
 
 exit_cleanup:
-	client->payload_length = 0;
+	if (client_valid) {
+		client->payload_length = 0;
+	}
 	free(buf);
 	return;
 }
@@ -621,8 +859,8 @@ bool ipc_send_reply(struct ipc_client *client, const char *payload, uint32_t pay
 	uint32_t *data32 = (uint32_t*)(data + sizeof(ipc_magic));
 
 	memcpy(data, ipc_magic, sizeof(ipc_magic));
-	data32[0] = payload_length;
-	data32[1] = client->current_command;
+	memcpy(&data32[0], &payload_length, sizeof(payload_length));
+	memcpy(&data32[1], &client->current_command, sizeof(client->current_command));
 
 	while (client->write_buffer_len + ipc_header_size + payload_length >=
 				 client->write_buffer_size) {
@@ -630,14 +868,14 @@ bool ipc_send_reply(struct ipc_client *client, const char *payload, uint32_t pay
 	}
 
 	if (client->write_buffer_size > 4e6) { // 4 MB
-		wlr_log(L_ERROR, "Client write buffer too big, disconnecting client");
+		wlr_log(WLR_ERROR, "Client write buffer too big, disconnecting client");
 		ipc_client_disconnect(client);
 		return false;
 	}
 
 	char *new_buffer = realloc(client->write_buffer, client->write_buffer_size);
 	if (!new_buffer) {
-		wlr_log(L_ERROR, "Unable to reallocate ipc client write buffer");
+		wlr_log(WLR_ERROR, "Unable to reallocate ipc client write buffer");
 		ipc_client_disconnect(client);
 		return false;
 	}
@@ -654,6 +892,6 @@ bool ipc_send_reply(struct ipc_client *client, const char *payload, uint32_t pay
 				ipc_client_handle_writable, client);
 	}
 
-	wlr_log(L_DEBUG, "Added IPC reply to client %d queue: %s", client->fd, payload);
+	wlr_log(WLR_DEBUG, "Added IPC reply to client %d queue: %s", client->fd, payload);
 	return true;
 }

@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 500
+#define _POSIX_C_SOURCE 200809L
 #include <stdbool.h>
 #include <string.h>
 #include "sway/commands.h"
@@ -42,7 +42,7 @@ struct cmd_results *bar_cmd_output(int argc, char **argv) {
 
 	if (add_output) {
 		list_add(outputs, strdup(output));
-		wlr_log(L_DEBUG, "Adding bar: '%s' to output '%s'",
+		wlr_log(WLR_DEBUG, "Adding bar: '%s' to output '%s'",
 				config->current_bar->id, output);
 	}
 	return cmd_results_new(CMD_SUCCESS, NULL, NULL);

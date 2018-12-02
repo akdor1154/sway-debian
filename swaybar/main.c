@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 500
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,7 +22,6 @@ void sway_terminate(int code) {
 
 int main(int argc, char **argv) {
 	char *socket_path = NULL;
-	char *bar_id = NULL;
 	bool debug = false;
 
 	static struct option long_options[] = {
@@ -59,10 +58,10 @@ int main(int argc, char **argv) {
 			socket_path = strdup(optarg);
 			break;
 		case 'b': // Type
-			bar_id = strdup(optarg);
+			swaybar.id = strdup(optarg);
 			break;
 		case 'v':
-			fprintf(stdout, "sway version " SWAY_VERSION "\n");
+			fprintf(stdout, "swaybar version " SWAY_VERSION "\n");
 			exit(EXIT_SUCCESS);
 			break;
 		case 'd': // Debug
@@ -75,13 +74,13 @@ int main(int argc, char **argv) {
 	}
 
 	if (debug) {
-		wlr_log_init(L_DEBUG, NULL);
+		wlr_log_init(WLR_DEBUG, NULL);
 	} else {
-		wlr_log_init(L_ERROR, NULL);
+		wlr_log_init(WLR_ERROR, NULL);
 	}
 
-	if (!bar_id) {
-		wlr_log(L_ERROR, "No bar_id passed. "
+	if (!swaybar.id) {
+		wlr_log(WLR_ERROR, "No bar_id passed. "
 				"Provide --bar_id or let sway start swaybar");
 		return 1;
 	}
@@ -89,17 +88,19 @@ int main(int argc, char **argv) {
 	if (!socket_path) {
 		socket_path = get_socketpath();
 		if (!socket_path) {
-			wlr_log(L_ERROR, "Unable to retrieve socket path");
+			wlr_log(WLR_ERROR, "Unable to retrieve socket path");
 			return 1;
 		}
 	}
 
 	signal(SIGTERM, sig_handler);
 
-	bar_setup(&swaybar, socket_path, bar_id);
+	if (!bar_setup(&swaybar, socket_path)) {
+		free(socket_path);
+		return 1;
+	}
 
 	free(socket_path);
-	free(bar_id);
 
 	bar_run(&swaybar);
 	bar_teardown(&swaybar);

@@ -1,5 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
-#define _XOPEN_SOURCE 700
+#define _XOPEN_SOURCE 600 // for realpath
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -24,7 +23,13 @@
 #include "sway/input/seat.h"
 #include "sway/commands.h"
 #include "sway/config.h"
-#include "sway/tree/layout.h"
+#include "sway/criteria.h"
+#include "sway/swaynag.h"
+#include "sway/tree/arrange.h"
+#include "sway/tree/root.h"
+#include "sway/tree/workspace.h"
+#include "cairo.h"
+#include "pango.h"
 #include "readline.h"
 #include "stringop.h"
 #include "list.h"
@@ -51,15 +56,21 @@ static void free_mode(struct sway_mode *mode) {
 		}
 		list_free(mode->keycode_bindings);
 	}
+	if (mode->mouse_bindings) {
+		for (i = 0; i < mode->mouse_bindings->length; i++) {
+			free_sway_binding(mode->mouse_bindings->items[i]);
+		}
+		list_free(mode->mouse_bindings);
+	}
 	free(mode);
 }
 
 void free_config(struct sway_config *config) {
-	config_clear_handler_context(config);
-
 	if (!config) {
 		return;
 	}
+
+	memset(&config->handler_context, 0, sizeof(config->handler_context));
 
 	// TODO: handle all currently unhandled lists as we add implementations
 	if (config->symbols) {
@@ -81,9 +92,18 @@ void free_config(struct sway_config *config) {
 		list_free(config->bars);
 	}
 	list_free(config->cmd_queue);
-	list_free(config->workspace_outputs);
-	list_free(config->pid_workspaces);
-	list_free(config->output_configs);
+	if (config->workspace_configs) {
+		for (int i = 0; i < config->workspace_configs->length; i++) {
+			free_workspace_config(config->workspace_configs->items[i]);
+		}
+		list_free(config->workspace_configs);
+	}
+	if (config->output_configs) {
+		for (int i = 0; i < config->output_configs->length; i++) {
+			free_output_config(config->output_configs->items[i]);
+		}
+		list_free(config->output_configs);
+	}
 	if (config->input_configs) {
 		for (int i = 0; i < config->input_configs->length; i++) {
 			free_input_config(config->input_configs->items[i]);
@@ -96,19 +116,26 @@ void free_config(struct sway_config *config) {
 		}
 		list_free(config->seat_configs);
 	}
-	list_free(config->criteria);
+	if (config->criteria) {
+		for (int i = 0; i < config->criteria->length; ++i) {
+			criteria_destroy(config->criteria->items[i]);
+		}
+		list_free(config->criteria);
+	}
 	list_free(config->no_focus);
 	list_free(config->active_bar_modifiers);
 	list_free(config->config_chain);
 	list_free(config->command_policies);
 	list_free(config->feature_policies);
 	list_free(config->ipc_policies);
-	free(config->current_bar);
 	free(config->floating_scroll_up_cmd);
 	free(config->floating_scroll_down_cmd);
 	free(config->floating_scroll_left_cmd);
 	free(config->floating_scroll_right_cmd);
 	free(config->font);
+	free(config->swaybg_command);
+	free(config->swaynag_command);
+	free((char *)config->current_config_path);
 	free((char *)config->current_config);
 	free(config);
 }
@@ -123,19 +150,35 @@ static void destroy_removed_seats(struct sway_config *old_config,
 		/* Also destroy seats that aren't present in new config */
 		if (new_config && list_seq_find(new_config->seat_configs,
 				seat_name_cmp, seat_config->name) < 0) {
-			seat = input_manager_get_seat(input_manager,
-				seat_config->name);
+			seat = input_manager_get_seat(seat_config->name);
 			seat_destroy(seat);
 		}
 	}
 }
 
+static void set_color(float dest[static 4], uint32_t color) {
+	dest[0] = ((color >> 16) & 0xff) / 255.0;
+	dest[1] = ((color >> 8) & 0xff) / 255.0;
+	dest[2] = (color & 0xff) / 255.0;
+	dest[3] = 1.0;
+}
+
 static void config_defaults(struct sway_config *config) {
+	if (!(config->swaynag_command = strdup("swaynag"))) goto cleanup;
+	config->swaynag_config_errors = (struct swaynag_instance){
+		.args = "--type error "
+			"--message 'There are errors in your config file' "
+			"--detailed-message "
+			"--button 'Exit sway' 'swaymsg exit' "
+			"--button 'Reload sway' 'swaymsg reload'",
+		.pid = -1,
+		.detailed = true,
+	};
+
 	if (!(config->symbols = create_list())) goto cleanup;
 	if (!(config->modes = create_list())) goto cleanup;
 	if (!(config->bars = create_list())) goto cleanup;
-	if (!(config->workspace_outputs = create_list())) goto cleanup;
-	if (!(config->pid_workspaces = create_list())) goto cleanup;
+	if (!(config->workspace_configs = create_list())) goto cleanup;
 	if (!(config->criteria = create_list())) goto cleanup;
 	if (!(config->no_focus = create_list())) goto cleanup;
 	if (!(config->input_configs = create_list())) goto cleanup;
@@ -150,11 +193,14 @@ static void config_defaults(struct sway_config *config) {
 	strcpy(config->current_mode->name, "default");
 	if (!(config->current_mode->keysym_bindings = create_list())) goto cleanup;
 	if (!(config->current_mode->keycode_bindings = create_list())) goto cleanup;
+	if (!(config->current_mode->mouse_bindings = create_list())) goto cleanup;
 	list_add(config->modes, config->current_mode);
 
 	config->floating_mod = 0;
+	config->floating_mod_inverse = false;
 	config->dragging_key = BTN_LEFT;
 	config->resizing_key = BTN_RIGHT;
+
 	if (!(config->floating_scroll_up_cmd = strdup(""))) goto cleanup;
 	if (!(config->floating_scroll_down_cmd = strdup(""))) goto cleanup;
 	if (!(config->floating_scroll_left_cmd = strdup(""))) goto cleanup;
@@ -162,8 +208,13 @@ static void config_defaults(struct sway_config *config) {
 	config->default_layout = L_NONE;
 	config->default_orientation = L_NONE;
 	if (!(config->font = strdup("monospace 10"))) goto cleanup;
-	// TODO: border
-	//config->font_height = get_font_text_height(config->font);
+	config->font_height = 17; // height of monospace 10
+	config->urgent_timeout = 500;
+	config->popup_during_fullscreen = POPUP_SMART;
+
+	config->titlebar_border_thickness = 1;
+	config->titlebar_h_padding = 5;
+	config->titlebar_v_padding = 4;
 
 	// floating view
 	config->floating_maximum_width = 0;
@@ -172,23 +223,32 @@ static void config_defaults(struct sway_config *config) {
 	config->floating_minimum_height = 50;
 
 	// Flags
-	config->focus_follows_mouse = true;
-	config->mouse_warping = true;
+	config->focus_follows_mouse = FOLLOWS_YES;
+	config->mouse_warping = WARP_OUTPUT;
+	config->focus_wrapping = WRAP_YES;
+	config->validating = false;
 	config->reloading = false;
 	config->active = false;
 	config->failed = false;
 	config->auto_back_and_forth = false;
 	config->reading = false;
 	config->show_marks = true;
+	config->title_align = ALIGN_LEFT;
+	config->tiling_drag = true;
 
-	config->edge_gaps = true;
 	config->smart_gaps = false;
 	config->gaps_inner = 0;
-	config->gaps_outer = 0;
+	config->gaps_outer.top = 0;
+	config->gaps_outer.right = 0;
+	config->gaps_outer.bottom = 0;
+	config->gaps_outer.left = 0;
 
 	if (!(config->active_bar_modifiers = create_list())) goto cleanup;
 
+	if (!(config->swaybg_command = strdup("swaybg"))) goto cleanup;
+
 	if (!(config->config_chain = create_list())) goto cleanup;
+	config->current_config_path = NULL;
 	config->current_config = NULL;
 
 	// borders
@@ -197,39 +257,40 @@ static void config_defaults(struct sway_config *config) {
 	config->border_thickness = 2;
 	config->floating_border_thickness = 2;
 	config->hide_edge_borders = E_NONE;
+	config->saved_edge_borders = E_NONE;
 
 	// border colors
-	config->border_colors.focused.border = 0x4C7899FF;
-	config->border_colors.focused.background = 0x285577FF;
-	config->border_colors.focused.text = 0xFFFFFFFF;
-	config->border_colors.focused.indicator = 0x2E9EF4FF;
-	config->border_colors.focused.child_border = 0x285577FF;
+	set_color(config->border_colors.focused.border, 0x4C7899);
+	set_color(config->border_colors.focused.background, 0x285577);
+	set_color(config->border_colors.focused.text, 0xFFFFFFFF);
+	set_color(config->border_colors.focused.indicator, 0x2E9EF4);
+	set_color(config->border_colors.focused.child_border, 0x285577);
 
-	config->border_colors.focused_inactive.border = 0x333333FF;
-	config->border_colors.focused_inactive.background = 0x5F676AFF;
-	config->border_colors.focused_inactive.text = 0xFFFFFFFF;
-	config->border_colors.focused_inactive.indicator = 0x484E50FF;
-	config->border_colors.focused_inactive.child_border = 0x5F676AFF;
+	set_color(config->border_colors.focused_inactive.border, 0x333333);
+	set_color(config->border_colors.focused_inactive.background, 0x5F676A);
+	set_color(config->border_colors.focused_inactive.text, 0xFFFFFFFF);
+	set_color(config->border_colors.focused_inactive.indicator, 0x484E50);
+	set_color(config->border_colors.focused_inactive.child_border, 0x5F676A);
 
-	config->border_colors.unfocused.border = 0x333333FF;
-	config->border_colors.unfocused.background = 0x222222FF;
-	config->border_colors.unfocused.text = 0x888888FF;
-	config->border_colors.unfocused.indicator = 0x292D2EFF;
-	config->border_colors.unfocused.child_border = 0x222222FF;
+	set_color(config->border_colors.unfocused.border, 0x333333);
+	set_color(config->border_colors.unfocused.background, 0x222222);
+	set_color(config->border_colors.unfocused.text, 0x88888888);
+	set_color(config->border_colors.unfocused.indicator, 0x292D2E);
+	set_color(config->border_colors.unfocused.child_border, 0x222222);
 
-	config->border_colors.urgent.border = 0x2F343AFF;
-	config->border_colors.urgent.background = 0x900000FF;
-	config->border_colors.urgent.text = 0xFFFFFFFF;
-	config->border_colors.urgent.indicator = 0x900000FF;
-	config->border_colors.urgent.child_border = 0x900000FF;
+	set_color(config->border_colors.urgent.border, 0x2F343A);
+	set_color(config->border_colors.urgent.background, 0x900000);
+	set_color(config->border_colors.urgent.text, 0xFFFFFFFF);
+	set_color(config->border_colors.urgent.indicator, 0x900000);
+	set_color(config->border_colors.urgent.child_border, 0x900000);
 
-	config->border_colors.placeholder.border = 0x000000FF;
-	config->border_colors.placeholder.background = 0x0C0C0CFF;
-	config->border_colors.placeholder.text = 0xFFFFFFFF;
-	config->border_colors.placeholder.indicator = 0x000000FF;
-	config->border_colors.placeholder.child_border = 0x0C0C0CFF;
+	set_color(config->border_colors.placeholder.border, 0x000000);
+	set_color(config->border_colors.placeholder.background, 0x0C0C0C);
+	set_color(config->border_colors.placeholder.text, 0xFFFFFFFF);
+	set_color(config->border_colors.placeholder.indicator, 0x000000);
+	set_color(config->border_colors.placeholder.child_border, 0x0C0C0C);
 
-	config->border_colors.background = 0xFFFFFFFF;
+	set_color(config->border_colors.background, 0xFFFFFF);
 
 	// Security
 	if (!(config->command_policies = create_list())) goto cleanup;
@@ -259,12 +320,12 @@ static char *get_config_path(void) {
 		char *home = getenv("HOME");
 		char *config_home = malloc(strlen(home) + strlen("/.config") + 1);
 		if (!config_home) {
-			wlr_log(L_ERROR, "Unable to allocate $HOME/.config");
+			wlr_log(WLR_ERROR, "Unable to allocate $HOME/.config");
 		} else {
 			strcpy(config_home, home);
 			strcat(config_home, "/.config");
 			setenv("XDG_CONFIG_HOME", config_home, 1);
-			wlr_log(L_DEBUG, "Set XDG_CONFIG_HOME to %s", config_home);
+			wlr_log(WLR_DEBUG, "Set XDG_CONFIG_HOME to %s", config_home);
 			free(config_home);
 		}
 	}
@@ -287,40 +348,37 @@ static char *get_config_path(void) {
 	return NULL; // Not reached
 }
 
-const char *current_config_path;
+static bool load_config(const char *path, struct sway_config *config,
+		struct swaynag_instance *swaynag) {
+	if (path == NULL) {
+		wlr_log(WLR_ERROR, "Unable to find a config file!");
+		return false;
+	}
 
-static bool load_config(const char *path, struct sway_config *config) {
-	wlr_log(L_INFO, "Loading config from %s", path);
-	current_config_path = path;
+	wlr_log(WLR_INFO, "Loading config from %s", path);
 
 	struct stat sb;
 	if (stat(path, &sb) == 0 && S_ISDIR(sb.st_mode)) {
 		return false;
 	}
 
-	if (path == NULL) {
-		wlr_log(L_ERROR, "Unable to find a config file!");
-		return false;
-	}
-
 	FILE *f = fopen(path, "r");
 	if (!f) {
-		wlr_log(L_ERROR, "Unable to open %s for reading", path);
+		wlr_log(WLR_ERROR, "Unable to open %s for reading", path);
 		return false;
 	}
 
-	bool config_load_success = read_config(f, config);
+	bool config_load_success = read_config(f, config, swaynag);
 	fclose(f);
 
 	if (!config_load_success) {
-		wlr_log(L_ERROR, "Error(s) loading config!");
+		wlr_log(WLR_ERROR, "Error(s) loading config!");
 	}
 
-	current_config_path = NULL;
 	return true;
 }
 
-bool load_main_config(const char *file, bool is_active) {
+bool load_main_config(const char *file, bool is_active, bool validating) {
 	char *path;
 	if (file != NULL) {
 		path = strdup(file);
@@ -335,13 +393,22 @@ bool load_main_config(const char *file, bool is_active) {
 	}
 
 	config_defaults(config);
+	config->validating = validating;
 	if (is_active) {
-		wlr_log(L_DEBUG, "Performing configuration file reload");
+		wlr_log(WLR_DEBUG, "Performing configuration file %s",
+			validating ? "validation" : "reload");
 		config->reloading = true;
 		config->active = true;
+
+		swaynag_kill(&old_config->swaynag_config_errors);
+		memcpy(&config->swaynag_config_errors,
+				&old_config->swaynag_config_errors,
+				sizeof(struct swaynag_instance));
+
+		create_default_output_configs();
 	}
 
-	config->current_config = path;
+	config->current_config_path = path;
 	list_add(config->config_chain, path);
 
 	config->reading = true;
@@ -352,7 +419,7 @@ bool load_main_config(const char *file, bool is_active) {
 	/*
 	DIR *dir = opendir(SYSCONFDIR "/sway/security.d");
 	if (!dir) {
-		wlr_log(L_ERROR,
+		wlr_log(WLR_ERROR,
 			"%s does not exist, sway will have no security configuration"
 			" and will probably be broken", SYSCONFDIR "/sway/security.d");
 	} else {
@@ -381,7 +448,7 @@ bool load_main_config(const char *file, bool is_active) {
 			if (stat(_path, &s) || s.st_uid != 0 || s.st_gid != 0 ||
 					(((s.st_mode & 0777) != 0644) &&
 					(s.st_mode & 0777) != 0444)) {
-				wlr_log(L_ERROR,
+				wlr_log(WLR_ERROR,
 					"Refusing to load %s - it must be owned by root "
 					"and mode 644 or 444", _path);
 				success = false;
@@ -394,10 +461,23 @@ bool load_main_config(const char *file, bool is_active) {
 	}
 	*/
 
-	success = success && load_config(path, config);
+	success = success && load_config(path, config,
+			&config->swaynag_config_errors);
+
+	if (validating) {
+		free_config(config);
+		config = old_config;
+		return success;
+	}
 
 	if (is_active) {
+		for (int i = 0; i < config->output_configs->length; i++) {
+			apply_output_config_to_outputs(config->output_configs->items[i]);
+		}
 		config->reloading = false;
+		if (config->swaynag_config_errors.pid > 0) {
+			swaynag_show(&config->swaynag_config_errors);
+		}
 	}
 
 	if (old_config) {
@@ -409,28 +489,30 @@ bool load_main_config(const char *file, bool is_active) {
 }
 
 static bool load_include_config(const char *path, const char *parent_dir,
-		struct sway_config *config) {
+		struct sway_config *config, struct swaynag_instance *swaynag) {
 	// save parent config
-	const char *parent_config = config->current_config;
+	const char *parent_config = config->current_config_path;
 
-	char *full_path = strdup(path);
+	char *full_path;
 	int len = strlen(path);
 	if (len >= 1 && path[0] != '/') {
 		len = len + strlen(parent_dir) + 2;
 		full_path = malloc(len * sizeof(char));
 		if (!full_path) {
-			wlr_log(L_ERROR,
+			wlr_log(WLR_ERROR,
 				"Unable to allocate full path to included config");
 			return false;
 		}
 		snprintf(full_path, len, "%s/%s", parent_dir, path);
+	} else {
+		full_path = strdup(path);
 	}
 
 	char *real_path = realpath(full_path, NULL);
 	free(full_path);
 
 	if (real_path == NULL) {
-		wlr_log(L_DEBUG, "%s not found.", path);
+		wlr_log(WLR_DEBUG, "%s not found.", path);
 		return false;
 	}
 
@@ -439,7 +521,7 @@ static bool load_include_config(const char *path, const char *parent_dir,
 	for (j = 0; j < config->config_chain->length; ++j) {
 		char *old_path = config->config_chain->items[j];
 		if (strcmp(real_path, old_path) == 0) {
-			wlr_log(L_DEBUG,
+			wlr_log(WLR_DEBUG,
 				"%s already included once, won't be included again.",
 				real_path);
 			free(real_path);
@@ -447,25 +529,26 @@ static bool load_include_config(const char *path, const char *parent_dir,
 		}
 	}
 
-	config->current_config = real_path;
+	config->current_config_path = real_path;
 	list_add(config->config_chain, real_path);
 	int index = config->config_chain->length - 1;
 
-	if (!load_config(real_path, config)) {
+	if (!load_config(real_path, config, swaynag)) {
 		free(real_path);
-		config->current_config = parent_config;
+		config->current_config_path = parent_config;
 		list_del(config->config_chain, index);
 		return false;
 	}
 
-	// restore current_config
-	config->current_config = parent_config;
+	// restore current_config_path
+	config->current_config_path = parent_config;
 	return true;
 }
 
-bool load_include_configs(const char *path, struct sway_config *config) {
+bool load_include_configs(const char *path, struct sway_config *config,
+		struct swaynag_instance *swaynag) {
 	char *wd = getcwd(NULL, 0);
-	char *parent_path = strdup(config->current_config);
+	char *parent_path = strdup(config->current_config_path);
 	const char *parent_dir = dirname(parent_path);
 
 	if (chdir(parent_dir) < 0) {
@@ -485,7 +568,7 @@ bool load_include_configs(const char *path, struct sway_config *config) {
 	char **w = p.we_wordv;
 	size_t i;
 	for (i = 0; i < p.we_wordc; ++i) {
-		load_include_config(w[i], parent_dir, config);
+		load_include_config(w[i], parent_dir, config, swaynag);
 	}
 	free(parent_path);
 	wordfree(&p);
@@ -493,7 +576,7 @@ bool load_include_configs(const char *path, struct sway_config *config) {
 	// restore wd
 	if (chdir(wd) < 0) {
 		free(wd);
-		wlr_log(L_ERROR, "failed to restore working directory");
+		wlr_log(WLR_ERROR, "failed to restore working directory");
 		return false;
 	}
 
@@ -501,172 +584,213 @@ bool load_include_configs(const char *path, struct sway_config *config) {
 	return true;
 }
 
-void config_clear_handler_context(struct sway_config *config) {
-	free_input_config(config->handler_context.input_config);
-	free_seat_config(config->handler_context.seat_config);
+static int detect_brace_on_following_line(FILE *file, char *line,
+		int line_number) {
+	int lines = 0;
+	if (line[strlen(line) - 1] != '{' && line[strlen(line) - 1] != '}') {
+		char *peeked = NULL;
+		long position = 0;
+		do {
+			free(peeked);
+			peeked = peek_line(file, lines, &position);
+			if (peeked) {
+				peeked = strip_whitespace(peeked);
+			}
+			lines++;
+		} while (peeked && strlen(peeked) == 0);
 
-	memset(&config->handler_context, 0, sizeof(config->handler_context));
+		if (peeked && strlen(peeked) == 1 && peeked[0] == '{') {
+			fseek(file, position, SEEK_SET);
+		} else {
+			lines = 0;
+		}
+		free(peeked);
+	}
+	return lines;
 }
 
-bool read_config(FILE *file, struct sway_config *config) {
-	bool success = true;
-	enum cmd_status block = CMD_BLOCK_END;
+static char *expand_line(const char *block, const char *line, bool add_brace) {
+	int size = (block ? strlen(block) + 1 : 0) + strlen(line)
+		+ (add_brace ? 2 : 0) + 1;
+	char *expanded = calloc(1, size);
+	if (!expanded) {
+		wlr_log(WLR_ERROR, "Cannot allocate expanded line buffer");
+		return NULL;
+	}
+	snprintf(expanded, size, "%s%s%s%s", block ? block : "",
+			block ? " " : "", line, add_brace ? " {" : "");
+	return expanded;
+}
 
+bool read_config(FILE *file, struct sway_config *config,
+		struct swaynag_instance *swaynag) {
+	bool reading_main_config = false;
+	char *this_config = NULL;
+	size_t config_size = 0;
+	if (config->current_config == NULL) {
+		reading_main_config = true;
+
+		int ret_seek = fseek(file, 0, SEEK_END);
+		long ret_tell = ftell(file);
+		if (ret_seek == -1 || ret_tell == -1) {
+			wlr_log(WLR_ERROR, "Unable to get size of config file");
+			return false;
+		}
+		config_size = ret_tell;
+		rewind(file);
+
+		config->current_config = this_config = calloc(1, config_size + 1);
+		if (this_config == NULL) {
+			wlr_log(WLR_ERROR, "Unable to allocate buffer for config contents");
+			return false;
+		}
+	}
+
+	bool success = true;
 	int line_number = 0;
 	char *line;
+	list_t *stack = create_list();
+	size_t read = 0;
 	while (!feof(file)) {
+		char *block = stack->length ? stack->items[0] : NULL;
 		line = read_line(file);
 		if (!line) {
 			continue;
 		}
 		line_number++;
+		wlr_log(WLR_DEBUG, "Read line %d: %s", line_number, line);
+
+		if (reading_main_config) {
+			size_t length = strlen(line);
+
+			if (read + length > config_size) {
+				wlr_log(WLR_ERROR, "Config file changed during reading");
+				list_foreach(stack, free);
+				list_free(stack);
+				free(line);
+				return false;
+			}
+
+			strcpy(this_config + read, line);
+			if (line_number != 1) {
+				this_config[read - 1] = '\n';
+			}
+			read += length + 1;
+		}
+
 		line = strip_whitespace(line);
 		if (line[0] == '#') {
 			free(line);
 			continue;
 		}
+		if (strlen(line) == 0) {
+			free(line);
+			continue;
+		}
+		int brace_detected = detect_brace_on_following_line(file, line,
+				line_number);
+		if (brace_detected > 0) {
+			line_number += brace_detected;
+			wlr_log(WLR_DEBUG, "Detected open brace on line %d", line_number);
+		}
+		char *expanded = expand_line(block, line, brace_detected > 0);
+		if (!expanded) {
+			list_foreach(stack, free);
+			list_free(stack);
+			free(line);
+			return false;
+		}
+		config->current_config_line_number = line_number;
+		config->current_config_line = line;
 		struct cmd_results *res;
-		if (block == CMD_BLOCK_COMMANDS) {
+		if (block && strcmp(block, "<commands>") == 0) {
 			// Special case
-			res = config_commands_command(line);
+			res = config_commands_command(expanded);
 		} else {
-			res = config_command(line, block);
+			res = config_command(expanded);
 		}
 		switch(res->status) {
 		case CMD_FAILURE:
 		case CMD_INVALID:
-			wlr_log(L_ERROR, "Error on line %i '%s': %s (%s)", line_number,
-				line, res->error, config->current_config);
+			wlr_log(WLR_ERROR, "Error on line %i '%s': %s (%s)", line_number,
+				line, res->error, config->current_config_path);
+			if (!config->validating) {
+				swaynag_log(config->swaynag_command, swaynag,
+					"Error on line %i (%s) '%s': %s", line_number,
+					config->current_config_path, line, res->error);
+			}
 			success = false;
 			break;
 
 		case CMD_DEFER:
-			wlr_log(L_DEBUG, "Deferring command `%s'", line);
-			list_add(config->cmd_queue, strdup(line));
-			break;
-
-		case CMD_BLOCK_MODE:
-			if (block == CMD_BLOCK_END) {
-				block = CMD_BLOCK_MODE;
-			} else {
-				wlr_log(L_ERROR, "Invalid block '%s'", line);
-			}
-			break;
-
-		case CMD_BLOCK_INPUT:
-			if (block == CMD_BLOCK_END) {
-				block = CMD_BLOCK_INPUT;
-			} else {
-				wlr_log(L_ERROR, "Invalid block '%s'", line);
-			}
-			break;
-
-		case CMD_BLOCK_SEAT:
-			if (block == CMD_BLOCK_END) {
-				block = CMD_BLOCK_SEAT;
-			} else {
-				wlr_log(L_ERROR, "Invalid block '%s'", line);
-			}
-			break;
-
-		case CMD_BLOCK_BAR:
-			if (block == CMD_BLOCK_END) {
-				block = CMD_BLOCK_BAR;
-			} else {
-				wlr_log(L_ERROR, "Invalid block '%s'", line);
-			}
-			break;
-
-		case CMD_BLOCK_BAR_COLORS:
-			if (block == CMD_BLOCK_BAR) {
-				block = CMD_BLOCK_BAR_COLORS;
-			} else {
-				wlr_log(L_ERROR, "Invalid block '%s'", line);
-			}
+			wlr_log(WLR_DEBUG, "Deferring command `%s'", line);
+			list_add(config->cmd_queue, strdup(expanded));
 			break;
 
 		case CMD_BLOCK_COMMANDS:
-			if (block == CMD_BLOCK_END) {
-				block = CMD_BLOCK_COMMANDS;
-			} else {
-				wlr_log(L_ERROR, "Invalid block '%s'", line);
-			}
+			wlr_log(WLR_DEBUG, "Entering commands block");
+			list_insert(stack, 0, "<commands>");
 			break;
 
-		case CMD_BLOCK_IPC:
-			if (block == CMD_BLOCK_END) {
-				block = CMD_BLOCK_IPC;
-			} else {
-				wlr_log(L_ERROR, "Invalid block '%s'", line);
-			}
-			break;
-
-		case CMD_BLOCK_IPC_EVENTS:
-			if (block == CMD_BLOCK_IPC) {
-				block = CMD_BLOCK_IPC_EVENTS;
-			} else {
-				wlr_log(L_ERROR, "Invalid block '%s'", line);
+		case CMD_BLOCK:
+			wlr_log(WLR_DEBUG, "Entering block '%s'", res->input);
+			list_insert(stack, 0, strdup(res->input));
+			if (strcmp(res->input, "bar") == 0) {
+				config->current_bar = NULL;
 			}
 			break;
 
 		case CMD_BLOCK_END:
-			switch(block) {
-			case CMD_BLOCK_MODE:
-				wlr_log(L_DEBUG, "End of mode block");
-				config->current_mode = config->modes->items[0];
-				block = CMD_BLOCK_END;
+			if (!block) {
+				wlr_log(WLR_DEBUG, "Unmatched '}' on line %i", line_number);
+				success = false;
 				break;
-
-			case CMD_BLOCK_INPUT:
-				wlr_log(L_DEBUG, "End of input block");
-				block = CMD_BLOCK_END;
-				break;
-
-			case CMD_BLOCK_SEAT:
-				wlr_log(L_DEBUG, "End of seat block");
-				block = CMD_BLOCK_END;
-				break;
-
-			case CMD_BLOCK_BAR:
-				wlr_log(L_DEBUG, "End of bar block");
-				config->current_bar = NULL;
-				block = CMD_BLOCK_END;
-				break;
-
-			case CMD_BLOCK_BAR_COLORS:
-				wlr_log(L_DEBUG, "End of bar colors block");
-				block = CMD_BLOCK_BAR;
-				break;
-
-			case CMD_BLOCK_COMMANDS:
-				wlr_log(L_DEBUG, "End of commands block");
-				block = CMD_BLOCK_END;
-				break;
-
-			case CMD_BLOCK_IPC:
-				wlr_log(L_DEBUG, "End of IPC block");
-				block = CMD_BLOCK_END;
-				break;
-
-			case CMD_BLOCK_IPC_EVENTS:
-				wlr_log(L_DEBUG, "End of IPC events block");
-				block = CMD_BLOCK_IPC;
-				break;
-
-			case CMD_BLOCK_END:
-				wlr_log(L_ERROR, "Unmatched }");
-				break;
-
-			default:;
 			}
-			config_clear_handler_context(config);
+			if (strcmp(block, "bar") == 0) {
+				config->current_bar = NULL;
+			}
+
+			wlr_log(WLR_DEBUG, "Exiting block '%s'", block);
+			list_del(stack, 0);
+			free(block);
+			memset(&config->handler_context, 0,
+					sizeof(config->handler_context));
 		default:;
 		}
+		free(expanded);
 		free(line);
 		free_cmd_results(res);
 	}
+	list_foreach(stack, free);
+	list_free(stack);
+	config->current_config_line_number = 0;
+	config->current_config_line = NULL;
 
 	return success;
+}
+
+void config_add_swaynag_warning(char *fmt, ...) {
+	if (config->reading && !config->validating) {
+		va_list args;
+		va_start(args, fmt);
+		size_t length = vsnprintf(NULL, 0, fmt, args) + 1;
+		va_end(args);
+
+		char *temp = malloc(length + 1);
+		if (!temp) {
+			wlr_log(WLR_ERROR, "Failed to allocate buffer for warning.");
+			return;
+		}
+
+		va_start(args, fmt);
+		vsnprintf(temp, length, fmt, args);
+		va_end(args);
+
+		swaynag_log(config->swaynag_command, &config->swaynag_config_errors,
+			"Warning on line %i (%s) '%s': %s",
+			config->current_config_line_number, config->current_config_path,
+			config->current_config_line, temp);
+	}
 }
 
 char *do_var_replacement(char *str) {
@@ -680,6 +804,14 @@ char *do_var_replacement(char *str) {
 				continue;
 			}
 		}
+		// Unescape double $ and move on
+		if (find[1] == '$') {
+			size_t length = strlen(find + 1);
+			memmove(find, find + 1, length);
+			find[length] = '\0';
+			++find;
+			continue;
+		}
 		// Find matching variable
 		for (i = 0; i < config->symbols->length; ++i) {
 			struct sway_variable *var = config->symbols->items[i];
@@ -688,7 +820,7 @@ char *do_var_replacement(char *str) {
 				int vvlen = strlen(var->value);
 				char *newstr = malloc(strlen(str) - vnlen + vvlen + 1);
 				if (!newstr) {
-					wlr_log(L_ERROR,
+					wlr_log(WLR_ERROR,
 						"Unable to allocate replacement "
 						"during variable expansion");
 					break;
@@ -717,6 +849,37 @@ char *do_var_replacement(char *str) {
 // would compare two structs in full, while this method only compares the
 // workspace.
 int workspace_output_cmp_workspace(const void *a, const void *b) {
-	const struct workspace_output *wsa = a, *wsb = b;
+	const struct workspace_config *wsa = a, *wsb = b;
 	return lenient_strcmp(wsa->workspace, wsb->workspace);
+}
+
+static void find_font_height_iterator(struct sway_container *con, void *data) {
+	size_t amount_below_baseline = con->title_height - con->title_baseline;
+	size_t extended_height = config->font_baseline + amount_below_baseline;
+	if (extended_height > config->font_height) {
+		config->font_height = extended_height;
+	}
+}
+
+static void find_baseline_iterator(struct sway_container *con, void *data) {
+	bool *recalculate = data;
+	if (*recalculate) {
+		container_calculate_title_height(con);
+	}
+	if (con->title_baseline > config->font_baseline) {
+		config->font_baseline = con->title_baseline;
+	}
+}
+
+void config_update_font_height(bool recalculate) {
+	size_t prev_max_height = config->font_height;
+	config->font_height = 0;
+	config->font_baseline = 0;
+
+	root_for_each_container(find_baseline_iterator, &recalculate);
+	root_for_each_container(find_font_height_iterator, NULL);
+
+	if (config->font_height != prev_max_height) {
+		arrange_root();
+	}
 }

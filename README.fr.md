@@ -24,14 +24,6 @@ maintenance de Sway.
 Les nouvelles versions sont signées avec [B22DA89A](http://pgp.mit.edu/pks/lookup?op=vindex&search=0x52CB6609B22DA89A)
 et publiées [sur GitHub](https://github.com/swaywm/sway/releases).
 
-## Statut
-
-- [support des fonctionnalités d'i3](https://github.com/swaywm/sway/issues/2)
-- [support des fonctionnalités d'IPC](https://github.com/swaywm/sway/issues/98)
-- [support des fonctionnalités d'i3bar](https://github.com/swaywm/sway/issues/343)
-- [support des fonctionnalités d'i3-gaps](https://github.com/swaywm/sway/issues/307)
-- [fonctionnalités de sécurité](https://github.com/swaywm/sway/issues/984)
-
 ## Installation
 
 ### À partir de paquets
@@ -53,15 +45,14 @@ Installez les dépendances :
 * xwayland
 * libinput >= 1.6.0
 * libcap
-* asciidoc
 * pcre
 * json-c >= 0.13
 * pango
 * cairo
 * gdk-pixbuf2 *
 * pam **
-* imagemagick (requis pour la capture d'image avec swaygrab)
-* ffmpeg (requis pour la capture vidéo avec swaygrab)
+* [scdoc](https://git.sr.ht/~sircmpwn/scdoc) (requis pour les pages man)
+* git
 
 _\*Uniquement requis pour swaybar, swaybg, and swaylock_
 
@@ -72,10 +63,6 @@ Exécutez ces commandes :
     meson build
     ninja -C build
     sudo ninja -C build install
-
-Sur les systèmes avec logind, vous devez définir quelques caps sur le binaire :
-
-    sudo setcap "cap_sys_ptrace,cap_sys_tty_config=eip" /usr/local/bin/sway
 
 Sur les systèmes sans logind, vous devez suid le binaire de sway :
 

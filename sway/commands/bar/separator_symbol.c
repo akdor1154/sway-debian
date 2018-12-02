@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 500
+#define _POSIX_C_SOURCE 200809L
 #include <string.h>
 #include "sway/commands.h"
 #include "log.h"
@@ -14,7 +14,7 @@ struct cmd_results *bar_cmd_separator_symbol(int argc, char **argv) {
 	}
 	free(config->current_bar->separator_symbol);
 	config->current_bar->separator_symbol = strdup(argv[0]);
-	wlr_log(L_DEBUG, "Settings separator_symbol '%s' for bar: %s",
+	wlr_log(WLR_DEBUG, "Settings separator_symbol '%s' for bar: %s",
 			config->current_bar->separator_symbol, config->current_bar->id);
 	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
 }

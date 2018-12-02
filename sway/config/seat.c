@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 700
+#define _POSIX_C_SOURCE 200809L
 #include <stdlib.h>
 #include <string.h>
 #include "sway/config.h"
@@ -7,11 +7,11 @@
 struct seat_config *new_seat_config(const char* name) {
 	struct seat_config *seat = calloc(1, sizeof(struct seat_config));
 	if (!seat) {
-		wlr_log(L_DEBUG, "Unable to allocate seat config");
+		wlr_log(WLR_DEBUG, "Unable to allocate seat config");
 		return NULL;
 	}
 
-	wlr_log(L_DEBUG, "new_seat_config(%s)", name);
+	wlr_log(WLR_DEBUG, "new_seat_config(%s)", name);
 	seat->name = strdup(name);
 	if (!sway_assert(seat->name, "could not allocate name for seat")) {
 		free(seat);
@@ -30,11 +30,11 @@ struct seat_config *new_seat_config(const char* name) {
 	return seat;
 }
 
-struct seat_attachment_config *seat_attachment_config_new() {
+struct seat_attachment_config *seat_attachment_config_new(void) {
 	struct seat_attachment_config *attachment =
 		calloc(1, sizeof(struct seat_attachment_config));
 	if (!attachment) {
-		wlr_log(L_DEBUG, "cannot allocate attachment config");
+		wlr_log(WLR_DEBUG, "cannot allocate attachment config");
 		return NULL;
 	}
 	return attachment;

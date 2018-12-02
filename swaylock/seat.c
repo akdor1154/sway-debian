@@ -7,40 +7,18 @@
 #include "swaylock/swaylock.h"
 #include "swaylock/seat.h"
 
-const char *XKB_MASK_NAMES[MASK_LAST] = {
-	XKB_MOD_NAME_SHIFT,
-	XKB_MOD_NAME_CAPS,
-	XKB_MOD_NAME_CTRL,
-	XKB_MOD_NAME_ALT,
-	"Mod2",
-	"Mod3",
-	XKB_MOD_NAME_LOGO,
-	"Mod5",
-};
-
-const enum mod_bit XKB_MODS[MASK_LAST] = {
-	MOD_SHIFT,
-	MOD_CAPS,
-	MOD_CTRL,
-	MOD_ALT,
-	MOD_MOD2,
-	MOD_MOD3,
-	MOD_LOGO,
-	MOD_MOD5
-};
-
 static void keyboard_keymap(void *data, struct wl_keyboard *wl_keyboard,
 		uint32_t format, int32_t fd, uint32_t size) {
 	struct swaylock_state *state = data;
 	if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
 		close(fd);
-		wlr_log(L_ERROR, "Unknown keymap format %d, aborting", format);
+		wlr_log(WLR_ERROR, "Unknown keymap format %d, aborting", format);
 		exit(1);
 	}
 	char *map_shm = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
 	if (map_shm == MAP_FAILED) {
 		close(fd);
-		wlr_log(L_ERROR, "Unable to initialize keymap shm, aborting");
+		wlr_log(WLR_ERROR, "Unable to initialize keymap shm, aborting");
 		exit(1);
 	}
 	struct xkb_keymap *keymap = xkb_keymap_new_from_string(
@@ -84,15 +62,13 @@ static void keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
 		uint32_t mods_locked, uint32_t group) {
 	struct swaylock_state *state = data;
 	xkb_state_update_mask(state->xkb.state,
-			mods_depressed, mods_latched, mods_locked, 0, 0, group);
-	xkb_mod_mask_t mask = xkb_state_serialize_mods(state->xkb.state,
-			XKB_STATE_MODS_DEPRESSED | XKB_STATE_MODS_LATCHED);
-	state->xkb.modifiers = 0;
-	for (uint32_t i = 0; i < MASK_LAST; ++i) {
-		if (mask & state->xkb.masks[i]) {
-			state->xkb.modifiers |= XKB_MODS[i];
-		}
-	}
+		mods_depressed, mods_latched, mods_locked, 0, 0, group);
+	state->xkb.caps_lock = xkb_state_mod_name_is_active(state->xkb.state,
+		XKB_MOD_NAME_CAPS, XKB_STATE_MODS_LOCKED);
+	state->xkb.control = xkb_state_mod_name_is_active(state->xkb.state,
+		XKB_MOD_NAME_CTRL,
+		XKB_STATE_MODS_DEPRESSED | XKB_STATE_MODS_LATCHED);
+
 }
 
 static void keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
@@ -168,14 +144,22 @@ static const struct wl_pointer_listener pointer_listener = {
 
 static void seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
 		enum wl_seat_capability caps) {
-	struct swaylock_state *state = data;
+	struct swaylock_seat *seat = data;
+	if (seat->pointer) {
+		wl_pointer_release(seat->pointer);
+		seat->pointer = NULL;
+	}
+	if (seat->keyboard) {
+		wl_keyboard_release(seat->keyboard);
+		seat->keyboard = NULL;
+	}
 	if ((caps & WL_SEAT_CAPABILITY_POINTER)) {
-		struct wl_pointer *pointer = wl_seat_get_pointer(wl_seat);
-		wl_pointer_add_listener(pointer, &pointer_listener, NULL);
+		seat->pointer = wl_seat_get_pointer(wl_seat);
+		wl_pointer_add_listener(seat->pointer, &pointer_listener, NULL);
 	}
 	if ((caps & WL_SEAT_CAPABILITY_KEYBOARD)) {
-		struct wl_keyboard *keyboard = wl_seat_get_keyboard(wl_seat);
-		wl_keyboard_add_listener(keyboard, &keyboard_listener, state);
+		seat->keyboard = wl_seat_get_keyboard(wl_seat);
+		wl_keyboard_add_listener(seat->keyboard, &keyboard_listener, seat->state);
 	}
 }
 

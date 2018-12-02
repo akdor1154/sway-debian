@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 700
+#define _POSIX_C_SOURCE 200809L
 #include <string.h>
 #include <strings.h>
 #include "sway/input/input-manager.h"
@@ -23,6 +23,8 @@ struct cmd_results *seat_cmd_attach(int argc, char **argv) {
 	new_attachment->identifier = strdup(argv[0]);
 	list_add(new_config->attachments, new_attachment);
 
-	apply_seat_config(new_config);
+	if (!config->validating) {
+		apply_seat_config(new_config);
+	}
 	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
 }

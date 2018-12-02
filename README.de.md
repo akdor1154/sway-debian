@@ -10,8 +10,8 @@ eingesehen werden.
 
 [![](https://sr.ht/ICd5.png)](https://sr.ht/ICd5.png)
 
-Falls du die Sway Entwicklung unterstützen möchtest, kannst du das auf der 
-[Patreonseite](https://patreon.com/sircmpwn) tun, oder indem du zu
+Falls du die Entwicklung von Sway unterstützen möchtest, kannst du das auf der 
+[Patreon-Seite](https://patreon.com/sircmpwn) tun, oder indem du zu
 [Entwicklungsprämien](https://github.com/swaywm/sway/issues/986) 
 bestimmter Features beiträgst. Jeder ist dazu eingeladen, eine Prämie in Anspruch
 zu nehmen oder für gewünschte Features bereitzustellen. Patreon ist eher dafür
@@ -28,25 +28,17 @@ Neue Versionen werden mit
 [B22DA89A](http://pgp.mit.edu/pks/lookup?op=vindex&search=0x52CB6609B22DA89A) 
 signiert und [auf Github](https://github.com/swaywm/sway/releases) veröffentlicht.
 
-## Status
-
-- [i3-Features](https://github.com/swaywm/sway/issues/2)
-- [IPC-Features](https://github.com/swaywm/sway/issues/98)
-- [i3bar-Features](https://github.com/swaywm/sway/issues/343)
-- [i3-gaps-Features](https://github.com/swaywm/sway/issues/307)
-- [Sicherheitsfeatures](https://github.com/swaywm/sway/issues/984)
-
 ## Installation
 
 ### Als Paket
 
-Sway ist in vielen Distributionen verfügbar: versuche einfach, das "sway"-Paket
-zu installieren. Falls es nicht vorhanden ist, schau dir 
+Sway ist in vielen Distributionen verfügbar: versuche einfach, das „sway“-Paket
+zu installieren. Falls es nicht vorhanden ist, schaue dir 
 [diese Wikiseite](https://github.com/swaywm/sway/wiki/Unsupported-packages) für 
 distributionsspezifische Installationsinformationen an.
 
 Wenn du Interesse hast, Sway für deine Distribution als Paket bereitzustellen, 
-schau im IRC-Channel vorbei oder schreibe eine e-Mail an sir@cmpwn.com (nur englischsprachig).
+schaue im IRC-Channel vorbei oder schreibe eine E‑Mail an sir@cmpwn.com (nur englischsprachig).
 
 ### Kompilieren des Quellcodes
 
@@ -58,15 +50,14 @@ Abhängigkeiten:
 * xwayland
 * libinput >= 1.6.0
 * libcap
-* asciidoc
 * pcre
 * json-c >= 0.13
 * pango
 * cairo
 * gdk-pixbuf2 *
 * pam **
-* imagemagick (erforderlich für Bildaufnahme mit swaygrab)
-* ffmpeg (erforderlich für Videoaufnahme swaygrab)
+* [scdoc](https://git.sr.ht/~sircmpwn/scdoc) (erforderlich für man pages)
+* git
 
 _\*Nur erforderlich für swaybar, swaybg, und swaylock_
 
@@ -77,10 +68,6 @@ Führe diese Befehle aus:
     meson build
     ninja -C build
     sudo ninja -C build install
-
-In Systemen mit logind musst du `sway` einige Capabilities geben:
-
-    sudo setcap "cap_sys_ptrace,cap_sys_tty_config=eip" /usr/local/bin/sway
 
 In Systemen ohne logind musst du `sway` das suid-Flag geben:
 
