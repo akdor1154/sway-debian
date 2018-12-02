@@ -1,2 +1,6 @@
+etc/pam.d/swaylock
 usr/bin/swaylock
+usr/share/bash-completion/completions/swaylock
+usr/share/fish/completions/swaylock.fish
+usr/share/man/man1/swaylock.1
 usr/share/zsh/site-functions/_swaylock
