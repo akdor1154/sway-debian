@@ -33,8 +33,10 @@ Depends:
 Recommends: swaylock
 #Suggests: swaygrab
 Description: i3-compatible Wayland compositor
- sway (SirCmpwn's Wayland compositor) is a work in an i3-compatible Wayland
- compositor.  This means it is a minimalist, tiling window manager.
+ sway (SirCmpwn's Wayland compositor) is a tiling Wayland compositor and a
+ drop-in replacement for the i3 window manager for X11. It works with your
+ existing i3 configuration and supports most of i3's features, plus a few
+ extras. This means it is a minimalist, tiling window manager.
 
 Package: swaylock
 Architecture: any
@@ -43,8 +45,10 @@ Depends:
  ${misc:Depends},
  sway (= ${binary:Version})
 Description: i3-compatible Wayland compositor -- Screen locker
- sway (SirCmpwn's Wayland compositor) is a work in an i3-compatible Wayland
- compositor.  This means it is a minimalist, tiling window manager.
+ sway (SirCmpwn's Wayland compositor) is a tiling Wayland compositor and a
+ drop-in replacement for the i3 window manager for X11. It works with your
+ existing i3 configuration and supports most of i3's features, plus a few
+ extras. This means it is a minimalist, tiling window manager.
  .
  swaylock is a screen locker for sway.
 
@@ -56,7 +60,9 @@ Depends:
  ${misc:Depends}
 Suggests: sway
 Description: i3-compatible Wayland compositor -- Desktop backgrounds
- sway (SirCmpwn's Wayland compositor) is a work in an i3-compatible Wayland
- compositor.  This means it is a minimalist, tiling window manager.
+ sway (SirCmpwn's Wayland compositor) is a tiling Wayland compositor and a
+ drop-in replacement for the i3 window manager for X11. It works with your
+ existing i3 configuration and supports most of i3's features, plus a few
+ extras. This means it is a minimalist, tiling window manager.
  .
  This package contains a set of backgrounds that come with sway.
