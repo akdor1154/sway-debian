@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Nicolas Braud-Santoni <nicolas@braud-santoni.eu>
 Build-Depends:
  debhelper (>= 11),
- libwlroots-dev,
+ libwlroots-dev (>= 0.2),
  libwayland-dev,
  libinput-dev (>= 1.6.0),
  libcap-dev,
