@@ -44,7 +44,7 @@ Depends:
  ${shlibs:Depends},
  ${misc:Depends},
  sway (= ${binary:Version})
-Description: Screen locker for the sway window manager.
+Description: Screen locker for the sway window manager
  sway (SirCmpwn's Wayland compositor) is a tiling Wayland compositor and a
  drop-in replacement for the i3 window manager for X11. It works with your
  existing i3 configuration and supports most of i3's features, plus a few
