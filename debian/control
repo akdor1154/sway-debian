@@ -3,7 +3,7 @@ Section: x11
 Priority: optional
 Maintainer: Birger Schacht <birger@rantanplan.org>
 Build-Depends:
- debhelper (>= 11),
+ debhelper-compat (= 12),
  libwlroots-dev (>= 0.2),
  libwayland-dev,
  libinput-dev (>= 1.6.0),
@@ -19,7 +19,7 @@ Build-Depends:
  pkgconf,
  tree,
  scdoc
-Standards-Version: 4.2.1
+Standards-Version: 4.3.0
 Homepage: http://swaywm.org
 Vcs-Browser: https://salsa.debian.org/swaywm-team/sway
 Vcs-Git: https://salsa.debian.org/swaywm-team/sway.git
