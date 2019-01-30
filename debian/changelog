@@ -3,4 +3,4 @@ sway (1.0~beta.2-1) experimental; urgency=medium
   [ Nicolas Braud-Santoni & Birger Schacht ]
   * Initial packaging (Closes: 897246, 821397)
 
- -- Birger Schacht <birger@rantanplan.org>  Wed, 30 Jan 2019 17:14:02 +0100
+ -- Birger Schacht <birger@rantanplan.org>  Wed, 30 Jan 2019 21:11:27 +0100
