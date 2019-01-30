@@ -1,7 +1,8 @@
 Source: sway
 Section: x11
 Priority: optional
-Maintainer: Birger Schacht <birger@rantanplan.org>
+Maintainer: Nicolas Braud-Santoni <nicolas@braud-santoni.eu>
+Uploaders: Birger Schacht <birger@rantanplan.org>
 Build-Depends:
  debhelper-compat (= 12),
  libwlroots-dev (>= 0.2),
