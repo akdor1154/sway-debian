@@ -7,7 +7,7 @@ License: Expat
 
 Files: protocols/idle.xml
 Copyright: (C) 2015 Martin Gräßlin
-License: LGPL-2.1-or-later
+License: LGPL-2.1+
 
 Files: debian/*
 Copyright: © 2018 Nicolas Braud-Santoni <nicolas@braud-santoni.eu>
