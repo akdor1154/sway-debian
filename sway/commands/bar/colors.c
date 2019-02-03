@@ -25,11 +25,11 @@ static struct cmd_results *parse_single_color(char **color,
 	if (!*color && !(*color = malloc(10))) {
 		return NULL;
 	}
-	error = add_color(cmd_name, *color, argv[0]);
+	error = add_color(*color, argv[0]);
 	if (error) {
 		return error;
 	}
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 static struct cmd_results *parse_three_colors(char ***colors,
@@ -37,18 +37,18 @@ static struct cmd_results *parse_three_colors(char ***colors,
 	struct cmd_results *error = NULL;
 	if (argc != 3) {
 		return cmd_results_new(CMD_INVALID,
-				cmd_name, "Requires exactly three color values");
+				"Command '%s' requires exactly three color values", cmd_name);
 	}
 	for (size_t i = 0; i < 3; i++) {
 		if (!*colors[i] && !(*(colors[i]) = malloc(10))) {
 			return NULL;
 		}
-		error = add_color(cmd_name, *(colors[i]), argv[i]);
+		error = add_color(*(colors[i]), argv[i]);
 		if (error) {
 			return error;
 		}
 	}
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 struct cmd_results *bar_cmd_colors(int argc, char **argv) {
@@ -118,8 +118,8 @@ struct cmd_results *bar_colors_cmd_statusline(int argc, char **argv) {
 }
 
 struct cmd_results *bar_colors_cmd_focused_statusline(int argc, char **argv) {
-	return parse_single_color(&(config->current_bar->colors.focused_separator),
-			"focused_separator", argc, argv);
+	return parse_single_color(&(config->current_bar->colors.focused_statusline),
+			"focused_statusline", argc, argv);
 }
 
 struct cmd_results *bar_colors_cmd_urgent_workspace(int argc, char **argv) {

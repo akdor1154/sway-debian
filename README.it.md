@@ -1,10 +1,9 @@
 # sway
 
-"**S**irCmpwn's **Way**land compositor" è un compositor 
-[Wayland](http://wayland.freedesktop.org/) **in via di sviluppo** 
-compatibile con i3.
-Leggi le [FAQ (in Inglese)](https://github.com/swaywm/sway/wiki). Unisciti al
-[canale IRC (in Inglese)](http://webchat.freenode.net/?channels=sway&uio=d4) (#sway on
+Sway è un compositor [Wayland](http://wayland.freedesktop.org/) **in via di
+sviluppo** compatibile con i3.  Leggi le [FAQ (in
+Inglese)](https://github.com/swaywm/sway/wiki). Unisciti al [canale IRC (in
+Inglese)](http://webchat.freenode.net/?channels=sway&uio=d4) (#sway on
 irc.freenode.net).
 
 [![](https://sr.ht/ICd5.png)](https://sr.ht/ICd5.png)
@@ -51,13 +50,10 @@ Installa queste dipendenze:
 * pango
 * cairo
 * gdk-pixbuf2 *
-* pam **
 * [scdoc](https://git.sr.ht/~sircmpwn/scdoc) (rrichiesto per man pages)
 * git
 
-_\*Richiesto solo per swaybar, swaybg, e swaylock_
-
-_\*\*Richiesto solo per swaylock_
+_\*Richiesto solo per swaybar, swaybg_
 
 Esegui questi comandi:
 

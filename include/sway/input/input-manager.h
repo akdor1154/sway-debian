@@ -37,11 +37,21 @@ void input_manager_configure_xcursor(void);
 
 void input_manager_apply_input_config(struct input_config *input_config);
 
+void input_manager_reset_input(struct sway_input_device *input_device);
+
+void input_manager_reset_all_inputs();
+
 void input_manager_apply_seat_config(struct seat_config *seat_config);
 
 struct sway_seat *input_manager_get_default_seat(void);
 
 struct sway_seat *input_manager_get_seat(const char *seat_name);
+
+/**
+ * If none of the seat configs have a fallback setting (either true or false),
+ * create the default seat (if needed) and set it as the fallback
+ */
+void input_manager_verify_fallback_seat(void);
 
 /**
  * Gets the last seat the user interacted with

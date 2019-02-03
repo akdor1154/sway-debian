@@ -31,7 +31,6 @@ enum cmd_status {
  */
 struct cmd_results {
 	enum cmd_status status;
-	char *input;
 	/**
 	 * Human friendly error message, or NULL on success
 	 */
@@ -63,7 +62,7 @@ list_t *execute_command(char *command,  struct sway_seat *seat,
  *
  * Do not use this under normal conditions.
  */
-struct cmd_results *config_command(char *command);
+struct cmd_results *config_command(char *command, char **new_block);
 /**
  * Parse and handle a sub command
  */
@@ -76,7 +75,7 @@ struct cmd_results *config_commands_command(char *exec);
 /**
  * Allocates a cmd_results object.
  */
-struct cmd_results *cmd_results_new(enum cmd_status status, const char* input, const char *error, ...);
+struct cmd_results *cmd_results_new(enum cmd_status status, const char *error, ...);
 /**
  * Frees a cmd_results object.
  */
@@ -88,14 +87,16 @@ void free_cmd_results(struct cmd_results *results);
  */
 char *cmd_results_to_json(list_t *res_list);
 
-struct cmd_results *add_color(const char *name,
-		char *buffer, const char *color);
+struct cmd_results *add_color(char *buffer, const char *color);
 
 /**
  * TODO: Move this function and its dependent functions to container.c.
  */
-void container_resize_tiled(struct sway_container *parent, enum wlr_edges edge,
+void container_resize_tiled(struct sway_container *parent, uint32_t axis,
 		int amount);
+
+struct sway_container *container_find_resize_parent(struct sway_container *con,
+		uint32_t edge);
 
 sway_cmd cmd_assign;
 sway_cmd cmd_bar;
@@ -172,6 +173,7 @@ sway_cmd cmd_swaybg_command;
 sway_cmd cmd_swaynag_command;
 sway_cmd cmd_swap;
 sway_cmd cmd_tiling_drag;
+sway_cmd cmd_tiling_drag_threshold;
 sway_cmd cmd_title_align;
 sway_cmd cmd_title_format;
 sway_cmd cmd_titlebar_border_thickness;
@@ -179,14 +181,14 @@ sway_cmd cmd_titlebar_padding;
 sway_cmd cmd_unmark;
 sway_cmd cmd_urgent;
 sway_cmd cmd_workspace;
-sway_cmd cmd_ws_auto_back_and_forth;
 sway_cmd cmd_workspace_layout;
+sway_cmd cmd_ws_auto_back_and_forth;
+sway_cmd cmd_xwayland;
 
-sway_cmd bar_cmd_activate_button;
+sway_cmd bar_cmd_bindcode;
 sway_cmd bar_cmd_binding_mode_indicator;
 sway_cmd bar_cmd_bindsym;
 sway_cmd bar_cmd_colors;
-sway_cmd bar_cmd_context_button;
 sway_cmd bar_cmd_font;
 sway_cmd bar_cmd_gaps;
 sway_cmd bar_cmd_mode;
@@ -197,13 +199,16 @@ sway_cmd bar_cmd_hidden_state;
 sway_cmd bar_cmd_icon_theme;
 sway_cmd bar_cmd_id;
 sway_cmd bar_cmd_position;
-sway_cmd bar_cmd_secondary_button;
 sway_cmd bar_cmd_separator_symbol;
 sway_cmd bar_cmd_status_command;
+sway_cmd bar_cmd_status_edge_padding;
+sway_cmd bar_cmd_status_padding;
 sway_cmd bar_cmd_pango_markup;
 sway_cmd bar_cmd_strip_workspace_numbers;
 sway_cmd bar_cmd_strip_workspace_name;
 sway_cmd bar_cmd_swaybar_command;
+sway_cmd bar_cmd_tray_bindcode;
+sway_cmd bar_cmd_tray_bindsym;
 sway_cmd bar_cmd_tray_output;
 sway_cmd bar_cmd_tray_padding;
 sway_cmd bar_cmd_wrap_scroll;
@@ -259,8 +264,10 @@ sway_cmd output_cmd_scale;
 sway_cmd output_cmd_transform;
 
 sway_cmd seat_cmd_attach;
-sway_cmd seat_cmd_fallback;
 sway_cmd seat_cmd_cursor;
+sway_cmd seat_cmd_fallback;
+sway_cmd seat_cmd_hide_cursor;
+sway_cmd seat_cmd_pointer_constraint;
 
 sway_cmd cmd_ipc_cmd;
 sway_cmd cmd_ipc_events;

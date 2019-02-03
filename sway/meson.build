@@ -23,6 +23,11 @@ sway_sources = files(
 
 	'input/input-manager.c',
 	'input/seat.c',
+	'input/seatop_down.c',
+	'input/seatop_move_floating.c',
+	'input/seatop_move_tiling.c',
+	'input/seatop_resize_floating.c',
+	'input/seatop_resize_tiling.c',
 	'input/cursor.c',
 	'input/keyboard.c',
 
@@ -78,6 +83,8 @@ sway_sources = files(
 	'commands/seat/attach.c',
 	'commands/seat/cursor.c',
 	'commands/seat/fallback.c',
+	'commands/seat/hide_cursor.c',
+	'commands/seat/pointer_constraint.c',
 	'commands/set.c',
 	'commands/show_marks.c',
 	'commands/smart_borders.c',
@@ -88,6 +95,7 @@ sway_sources = files(
 	'commands/swaynag_command.c',
 	'commands/swap.c',
 	'commands/tiling_drag.c',
+	'commands/tiling_drag_threshold.c',
 	'commands/title_align.c',
 	'commands/title_format.c',
 	'commands/titlebar_border_thickness.c',
@@ -97,12 +105,11 @@ sway_sources = files(
 	'commands/workspace.c',
 	'commands/workspace_layout.c',
 	'commands/ws_auto_back_and_forth.c',
+	'commands/xwayland.c',
 
-	'commands/bar/activate_button.c',
+	'commands/bar/bind.c',
 	'commands/bar/binding_mode_indicator.c',
-	'commands/bar/bindsym.c',
 	'commands/bar/colors.c',
-	'commands/bar/context_button.c',
 	'commands/bar/font.c',
 	'commands/bar/gaps.c',
 	'commands/bar/height.c',
@@ -114,12 +121,14 @@ sway_sources = files(
 	'commands/bar/output.c',
 	'commands/bar/pango_markup.c',
 	'commands/bar/position.c',
-	'commands/bar/secondary_button.c',
 	'commands/bar/separator_symbol.c',
 	'commands/bar/status_command.c',
+	'commands/bar/status_edge_padding.c',
+	'commands/bar/status_padding.c',
 	'commands/bar/strip_workspace_numbers.c',
 	'commands/bar/strip_workspace_name.c',
 	'commands/bar/swaybar_command.c',
+	'commands/bar/tray_bind.c',
 	'commands/bar/tray_output.c',
 	'commands/bar/tray_padding.c',
 	'commands/bar/workspace_buttons.c',
@@ -174,6 +183,7 @@ sway_deps = [
 	cairo,
 	gdk_pixbuf,
 	jsonc,
+	libevdev,
 	libinput,
 	math,
 	pango,
@@ -185,7 +195,7 @@ sway_deps = [
 	xkbcommon,
 ]
 
-if get_option('enable-xwayland')
+if have_xwayland
 	sway_sources += 'desktop/xwayland.c'
 	sway_deps += xcb
 endif
@@ -196,6 +206,5 @@ executable(
 	include_directories: [sway_inc],
 	dependencies: sway_deps,
 	link_with: [lib_sway_common],
-	install_rpath : rpathdir,
 	install: true
 )

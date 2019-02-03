@@ -10,9 +10,6 @@
 #include "log.h"
 #include "stringop.h"
 
-static const char overflow[] = "[buffer overflow]";
-static const int max_chars = 16384;
-
 size_t escape_markup_text(const char *src, char *dest) {
 	size_t length = 0;
 	if (dest) {
@@ -64,7 +61,7 @@ PangoLayout *get_pango_layout(cairo_t *cairo, const char *font,
 			pango_layout_set_text(layout, buf, -1);
 			free(buf);
 		} else {
-			wlr_log(WLR_ERROR, "pango_parse_markup '%s' -> error %s", text,
+			sway_log(SWAY_ERROR, "pango_parse_markup '%s' -> error %s", text,
 					error->message);
 			g_error_free(error);
 			markup = false; // fallback to plain text
@@ -87,13 +84,19 @@ PangoLayout *get_pango_layout(cairo_t *cairo, const char *font,
 
 void get_text_size(cairo_t *cairo, const char *font, int *width, int *height,
 		int *baseline, double scale, bool markup, const char *fmt, ...) {
-	char buf[max_chars];
-
 	va_list args;
 	va_start(args, fmt);
-	if (vsnprintf(buf, sizeof(buf), fmt, args) >= max_chars) {
-		strcpy(&buf[sizeof(buf) - sizeof(overflow)], overflow);
+	// Add one since vsnprintf excludes null terminator.
+	int length = vsnprintf(NULL, 0, fmt, args) + 1;
+	va_end(args);
+
+	char *buf = malloc(length);
+	if (buf == NULL) {
+		sway_log(SWAY_ERROR, "Failed to allocate memory");
+		return;
 	}
+	va_start(args, fmt);
+	vsnprintf(buf, length, fmt, args);
 	va_end(args);
 
 	PangoLayout *layout = get_pango_layout(cairo, font, buf, scale, markup);
@@ -103,17 +106,24 @@ void get_text_size(cairo_t *cairo, const char *font, int *width, int *height,
 		*baseline = pango_layout_get_baseline(layout) / PANGO_SCALE;
 	}
 	g_object_unref(layout);
+	free(buf);
 }
 
 void pango_printf(cairo_t *cairo, const char *font,
 		double scale, bool markup, const char *fmt, ...) {
-	char buf[max_chars];
-
 	va_list args;
 	va_start(args, fmt);
-	if (vsnprintf(buf, sizeof(buf), fmt, args) >= max_chars) {
-		strcpy(&buf[sizeof(buf) - sizeof(overflow)], overflow);
+	// Add one since vsnprintf excludes null terminator.
+	int length = vsnprintf(NULL, 0, fmt, args) + 1;
+	va_end(args);
+
+	char *buf = malloc(length);
+	if (buf == NULL) {
+		sway_log(SWAY_ERROR, "Failed to allocate memory");
+		return;
 	}
+	va_start(args, fmt);
+	vsnprintf(buf, length, fmt, args);
 	va_end(args);
 
 	PangoLayout *layout = get_pango_layout(cairo, font, buf, scale, markup);
@@ -124,4 +134,5 @@ void pango_printf(cairo_t *cairo, const char *font,
 	pango_cairo_update_layout(cairo, layout);
 	pango_cairo_show_layout(cairo, layout);
 	g_object_unref(layout);
+	free(buf);
 }

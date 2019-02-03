@@ -1,7 +1,6 @@
 # sway
 
-"**S**irCmpwn's **Way**land compositor"は**開発中**の
-i3互換な[Wayland](http://wayland.freedesktop.org/)コンポジタです。
+Swayはi3互換な[Wayland](http://wayland.freedesktop.org/)コンポジタです。
 [FAQ](https://github.com/swaywm/sway/wiki)も合わせてご覧ください。
 [IRC チャンネル](http://webchat.freenode.net/?channels=sway&uio=d4) (#sway on irc.freenode.net)もあります。
 
@@ -38,13 +37,12 @@ Swayは沢山のディストリビューションで提供されています。"
 * pango
 * cairo
 * gdk-pixbuf2 \*\*
-* pam (オプション: swaylockとPAMで必要)
 * [scdoc](https://git.sr.ht/~sircmpwn/scdoc) (manで必要です) \*
 * git \*
 
 _\*コンパイルの時_
 
-_\*\*オプション: swaybgとswaylockでのみ必要です_
+_\*\*オプション: swaybgでのみ必要です_
 
 次のコマンドを実行してください:
 

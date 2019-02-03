@@ -1,15 +1,14 @@
 #define _POSIX_C_SOURCE 200809L
-#ifdef __linux__
+#include <libevdev/libevdev.h>
 #include <linux/input-event-codes.h>
-#elif __FreeBSD__
-#include <dev/evdev/input-event-codes.h>
-#endif
 #include <xkbcommon/xkbcommon.h>
 #include <xkbcommon/xkbcommon-names.h>
 #include <string.h>
 #include <strings.h>
 #include "sway/commands.h"
 #include "sway/config.h"
+#include "sway/input/cursor.h"
+#include "sway/input/keyboard.h"
 #include "sway/ipc-server.h"
 #include "list.h"
 #include "log.h"
@@ -23,9 +22,7 @@ void free_sway_binding(struct sway_binding *binding) {
 		return;
 	}
 
-	if (binding->keys) {
-		free_flat_list(binding->keys);
-	}
+	list_free_items_and_destroy(binding->keys);
 	free(binding->input);
 	free(binding->command);
 	free(binding);
@@ -80,7 +77,6 @@ static int key_qsort_cmp(const void *keyp_a, const void *keyp_b) {
 	return (key_a < key_b) ? -1 : ((key_a > key_b) ? 1 : 0);
 }
 
-
 /**
  * From a keycode, bindcode, or bindsym name and the most likely binding type,
  * identify the appropriate numeric value corresponding to the key. Return NULL
@@ -90,52 +86,89 @@ static int key_qsort_cmp(const void *keyp_a, const void *keyp_b) {
  */
 static struct cmd_results *identify_key(const char* name, bool first_key,
 		uint32_t* key_val, enum binding_input_type* type) {
-	if (*type == BINDING_KEYCODE) {
-		// check for keycode
+	if (*type == BINDING_MOUSECODE) {
+		// check for mouse bindcodes
+		char *message = NULL;
+		uint32_t button = get_mouse_bindcode(name, &message);
+		if (!button) {
+			if (message) {
+				struct cmd_results *error =
+					cmd_results_new(CMD_INVALID, message);
+				free(message);
+				return error;
+			} else {
+				return cmd_results_new(CMD_INVALID,
+						"Unknown button code %s", name);
+			}
+		}
+		*key_val = button;
+	} else if (*type == BINDING_MOUSESYM) {
+		// check for mouse bindsyms (x11 buttons or event names)
+		char *message = NULL;
+		uint32_t button = get_mouse_bindsym(name, &message);
+		if (!button) {
+			if (message) {
+				struct cmd_results *error =
+					cmd_results_new(CMD_INVALID, message);
+				free(message);
+				return error;
+			} else if (!button) {
+				return cmd_results_new(CMD_INVALID, "Unknown button %s", name);
+			}
+		}
+		*key_val = button;
+	} else if (*type == BINDING_KEYCODE) {
+		// check for keycode. If it is the first key, allow mouse bindcodes
+		if (first_key) {
+			char *message = NULL;
+			uint32_t button = get_mouse_bindcode(name, &message);
+			free(message);
+			if (button) {
+				*type = BINDING_MOUSECODE;
+				*key_val = button;
+				return NULL;
+			}
+		}
+
 		xkb_keycode_t keycode = strtol(name, NULL, 10);
 		if (!xkb_keycode_is_legal_ext(keycode)) {
-			return cmd_results_new(CMD_INVALID, "bindcode",
-					"Invalid keycode '%s'", name);
+			if (first_key) {
+				return cmd_results_new(CMD_INVALID,
+						"Invalid keycode or button code '%s'", name);
+			} else {
+				return cmd_results_new(CMD_INVALID,
+						"Invalid keycode '%s'", name);
+			}
 		}
 		*key_val = keycode;
 	} else {
-		// check for keysym
+		// check for keysym. If it is the first key, allow mouse bindsyms
+		if (first_key) {
+			char *message = NULL;
+			uint32_t button = get_mouse_bindsym(name, &message);
+			if (message) {
+				struct cmd_results *error =
+					cmd_results_new(CMD_INVALID, message);
+				free(message);
+				return error;
+			} else if (button) {
+				*type = BINDING_MOUSESYM;
+				*key_val = button;
+				return NULL;
+			}
+		}
+
 		xkb_keysym_t keysym = xkb_keysym_from_name(name,
 				XKB_KEYSYM_CASE_INSENSITIVE);
-
-		// Check for mouse binding
-		uint32_t button = 0;
-		if (strncasecmp(name, "button", strlen("button")) == 0 &&
-				strlen(name) == strlen("button0")) {
-			button = name[strlen("button")] - '1' + BTN_LEFT;
-		}
-
-		if (*type == BINDING_KEYSYM) {
-			if (button) {
-				if (first_key) {
-					*type = BINDING_MOUSE;
-					*key_val = button;
-				} else {
-					return cmd_results_new(CMD_INVALID, "bindsym",
-							"Mixed button '%s' into key sequence", name);
-				}
-			} else if (keysym) {
-				*key_val = keysym;
+		if (!keysym) {
+			if (first_key) {
+				return cmd_results_new(CMD_INVALID,
+						"Unknown key or button '%s'", name);
 			} else {
-				return cmd_results_new(CMD_INVALID, "bindsym",
-						"Unknown key '%s'", name);
-			}
-		} else {
-			if (button) {
-				*key_val = button;
-			} else if (keysym) {
-				return cmd_results_new(CMD_INVALID, "bindsym",
-						"Mixed keysym '%s' into button sequence", name);
-			} else {
-				return cmd_results_new(CMD_INVALID, "bindsym",
-						"Unknown button '%s'", name);
+				return cmd_results_new(CMD_INVALID, "Unknown key '%s'", name);
 			}
 		}
+		*key_val = keysym;
 	}
 	return NULL;
 }
@@ -151,8 +184,7 @@ static struct cmd_results *cmd_bindsym_or_bindcode(int argc, char **argv,
 
 	struct sway_binding *binding = calloc(1, sizeof(struct sway_binding));
 	if (!binding) {
-		return cmd_results_new(CMD_FAILURE, bindtype,
-				"Unable to allocate binding");
+		return cmd_results_new(CMD_FAILURE, "Unable to allocate binding");
 	}
 	binding->input = strdup("*");
 	binding->keys = create_list();
@@ -161,6 +193,7 @@ static struct cmd_results *cmd_bindsym_or_bindcode(int argc, char **argv,
 	binding->type = bindcode ? BINDING_KEYCODE : BINDING_KEYSYM;
 
 	bool exclude_titlebar = false;
+	bool warn = true;
 
 	// Handle --release and --locked
 	while (argc > 0) {
@@ -178,6 +211,8 @@ static struct cmd_results *cmd_bindsym_or_bindcode(int argc, char **argv,
 					strlen("--input-device=")) == 0) {
 			free(binding->input);
 			binding->input = strdup(argv[0] + strlen("--input-device="));
+		} else if (strcmp("--no-warn", argv[0]) == 0) {
+			warn = false;
 		} else {
 			break;
 		}
@@ -186,12 +221,13 @@ static struct cmd_results *cmd_bindsym_or_bindcode(int argc, char **argv,
 	}
 	if (binding->flags & (BINDING_BORDER | BINDING_CONTENTS | BINDING_TITLEBAR)
 			|| exclude_titlebar) {
-		binding->type = BINDING_MOUSE;
+		binding->type = binding->type == BINDING_KEYCODE ?
+			BINDING_MOUSECODE : BINDING_MOUSESYM;
 	}
 
 	if (argc < 2) {
 		free_sway_binding(binding);
-		return cmd_results_new(CMD_FAILURE, bindtype,
+		return cmd_results_new(CMD_FAILURE,
 			"Invalid %s command "
 			"(expected at least 2 non-option arguments, got %d)", bindtype, argc);
 	}
@@ -220,21 +256,22 @@ static struct cmd_results *cmd_bindsym_or_bindcode(int argc, char **argv,
 		uint32_t *key = calloc(1, sizeof(uint32_t));
 		if (!key) {
 			free_sway_binding(binding);
-			free_flat_list(split);
-			return cmd_results_new(CMD_FAILURE, bindtype,
+			list_free_items_and_destroy(split);
+			return cmd_results_new(CMD_FAILURE,
 					"Unable to allocate binding key");
 		}
 		*key = key_val;
 		list_add(binding->keys, key);
 	}
-	free_flat_list(split);
+	list_free_items_and_destroy(split);
 	binding->order = binding_order++;
 
 	// refine region of interest for mouse binding once we are certain
 	// that this is one
 	if (exclude_titlebar) {
 		binding->flags &= ~BINDING_TITLEBAR;
-	} else if (binding->type == BINDING_MOUSE) {
+	} else if (binding->type == BINDING_MOUSECODE
+			|| binding->type == BINDING_MOUSESYM) {
 		binding->flags |= BINDING_TITLEBAR;
 	}
 
@@ -255,12 +292,15 @@ static struct cmd_results *cmd_bindsym_or_bindcode(int argc, char **argv,
 	for (int i = 0; i < mode_bindings->length; ++i) {
 		struct sway_binding *config_binding = mode_bindings->items[i];
 		if (binding_key_compare(binding, config_binding)) {
-			wlr_log(WLR_INFO, "Overwriting binding '%s' for device '%s' "
+			sway_log(SWAY_INFO, "Overwriting binding '%s' for device '%s' "
 					"from `%s` to `%s`", argv[0], binding->input,
 					binding->command, config_binding->command);
-			config_add_swaynag_warning("Overwriting binding '%s' for device "
-					"'%s' to `%s` from `%s`", argv[0], binding->input,
-					binding->command, config_binding->command);
+			if (warn) {
+				config_add_swaynag_warning("Overwriting binding"
+					"'%s' for device '%s' to `%s` from `%s`",
+					argv[0], binding->input, binding->command,
+					config_binding->command);
+			}
 			free_sway_binding(config_binding);
 			mode_bindings->items[i] = binding;
 			overwritten = true;
@@ -271,10 +311,9 @@ static struct cmd_results *cmd_bindsym_or_bindcode(int argc, char **argv,
 		list_add(mode_bindings, binding);
 	}
 
-	wlr_log(WLR_DEBUG, "%s - Bound %s to command `%s` for device '%s'",
+	sway_log(SWAY_DEBUG, "%s - Bound %s to command `%s` for device '%s'",
 		bindtype, argv[0], binding->command, binding->input);
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
-
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 struct cmd_results *cmd_bindsym(int argc, char **argv) {
@@ -285,25 +324,22 @@ struct cmd_results *cmd_bindcode(int argc, char **argv) {
 	return cmd_bindsym_or_bindcode(argc, argv, true);
 }
 
-
 /**
  * Execute the command associated to a binding
  */
 void seat_execute_command(struct sway_seat *seat, struct sway_binding *binding) {
-	wlr_log(WLR_DEBUG, "running command for binding: %s", binding->command);
+	sway_log(SWAY_DEBUG, "running command for binding: %s", binding->command);
 
-	config->handler_context.seat = seat;
-	list_t *res_list = execute_command(binding->command, NULL, NULL);
+	list_t *res_list = execute_command(binding->command, seat, NULL);
 	bool success = true;
-	while (res_list->length) {
-		struct cmd_results *results = res_list->items[0];
+	for (int i = 0; i < res_list->length; ++i) {
+		struct cmd_results *results = res_list->items[i];
 		if (results->status != CMD_SUCCESS) {
-			wlr_log(WLR_DEBUG, "could not run command for binding: %s (%s)",
+			sway_log(SWAY_DEBUG, "could not run command for binding: %s (%s)",
 				binding->command, results->error);
 			success = false;
 		}
 		free_cmd_results(results);
-		list_del(res_list, 0);
 	}
 	list_free(res_list);
 	if (success) {

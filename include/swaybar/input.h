@@ -4,6 +4,12 @@
 #include <wayland-client.h>
 #include "list.h"
 
+#define SWAY_SCROLL_UP KEY_MAX + 1
+#define SWAY_SCROLL_DOWN KEY_MAX + 2
+#define SWAY_SCROLL_LEFT KEY_MAX + 3
+#define SWAY_SCROLL_RIGHT KEY_MAX + 4
+
+struct swaybar;
 struct swaybar_output;
 
 struct swaybar_pointer {
@@ -13,19 +19,7 @@ struct swaybar_pointer {
 	struct wl_surface *cursor_surface;
 	struct swaybar_output *current;
 	int x, y;
-};
-
-enum x11_button {
-	NONE,
-	LEFT,
-	MIDDLE,
-	RIGHT,
-	SCROLL_UP,
-	SCROLL_DOWN,
-	SCROLL_LEFT,
-	SCROLL_RIGHT,
-	BACK,
-	FORWARD,
+	uint32_t serial;
 };
 
 enum hotspot_event_handling {
@@ -37,12 +31,17 @@ struct swaybar_hotspot {
 	struct wl_list link; // swaybar_output::hotspots
 	int x, y, width, height;
 	enum hotspot_event_handling (*callback)(struct swaybar_output *output,
-			int x, int y, enum x11_button button, void *data);
+		struct swaybar_hotspot *hotspot, int x, int y, uint32_t button,
+		void *data);
 	void (*destroy)(void *data);
 	void *data;
 };
 
 extern const struct wl_seat_listener seat_listener;
+
+void update_cursor(struct swaybar *bar);
+
+uint32_t event_to_x11_button(uint32_t event);
 
 void free_hotspots(struct wl_list *list);
 

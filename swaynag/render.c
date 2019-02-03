@@ -8,9 +8,6 @@
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 
 static uint32_t render_message(cairo_t *cairo, struct swaynag *swaynag) {
-	uint32_t height = swaynag->height * swaynag->scale;
-	height -= swaynag->type->bar_border_thickness * swaynag->scale;
-
 	int text_width, text_height;
 	get_text_size(cairo, swaynag->type->font, &text_width, &text_height, NULL,
 			swaynag->scale, true, "%s", swaynag->message);
@@ -77,8 +74,6 @@ static int get_detailed_scroll_button_width(cairo_t *cairo,
 static uint32_t render_detailed(cairo_t *cairo, struct swaynag *swaynag,
 		uint32_t y) {
 	uint32_t width = swaynag->width * swaynag->scale;
-	uint32_t height = swaynag->height * swaynag->scale;
-	height -= swaynag->type->bar_border_thickness * swaynag->scale;
 
 	int border = swaynag->type->details_border_thickness * swaynag->scale;
 	int padding = swaynag->type->message_padding * swaynag->scale;
@@ -174,8 +169,6 @@ static uint32_t render_detailed(cairo_t *cairo, struct swaynag *swaynag,
 
 static uint32_t render_button(cairo_t *cairo, struct swaynag *swaynag,
 		int button_index, int *x) {
-	uint32_t height = swaynag->height * swaynag->scale;
-	height -= swaynag->type->bar_border_thickness * swaynag->scale;
 	struct swaynag_button *button = swaynag->buttons->items[button_index];
 
 	int text_width, text_height;
@@ -191,8 +184,8 @@ static uint32_t render_button(cairo_t *cairo, struct swaynag *swaynag,
 		return ideal_surface_height;
 	}
 
-	button->x = *x - border - text_width - padding * 2;
-	button->y = (int)(ideal_height - text_height) / 2 - padding;
+	button->x = *x - border - text_width - padding * 2 + 1;
+	button->y = (int)(ideal_height - text_height) / 2 - padding + 1;
 	button->width = text_width + padding * 2;
 	button->height = text_height + padding * 2;
 
@@ -281,7 +274,7 @@ void render_frame(struct swaynag *swaynag) {
 				swaynag->width * swaynag->scale,
 				swaynag->height * swaynag->scale);
 		if (!swaynag->current_buffer) {
-			wlr_log(WLR_DEBUG, "Failed to get buffer. Skipping frame.");
+			sway_log(SWAY_DEBUG, "Failed to get buffer. Skipping frame.");
 			goto cleanup;
 		}
 

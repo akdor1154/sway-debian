@@ -2,6 +2,7 @@ project(
 	'sway',
 	'c',
 	license: 'MIT',
+	meson_version: '>=0.48.0',
 	default_options: [
 		'c_std=c11',
 		'warning_level=2',
@@ -11,12 +12,15 @@ project(
 
 add_project_arguments(
 	[
+		'-DSWAY_SRC_DIR="@0@"'.format(meson.current_source_dir()),
+
 		'-DWL_HIDE_DEPRECATED',
 		'-DWLR_USE_UNSTABLE',
 
 		'-Wno-unused-parameter',
 		'-Wno-unused-result',
 		'-Wundef',
+		'-Wvla',
 	],
 	language: 'c',
 )
@@ -32,11 +36,8 @@ if is_freebsd
 	add_project_arguments('-D_C11_SOURCE', language: 'c')
 endif
 
-swayidle_deps = []
-
 jsonc          = dependency('json-c', version: '>=0.13')
 pcre           = dependency('libpcre')
-wlroots        = dependency('wlroots', fallback: ['wlroots', 'wlroots'])
 wayland_server = dependency('wayland-server')
 wayland_client = dependency('wayland-client')
 wayland_cursor = dependency('wayland-cursor')
@@ -46,35 +47,53 @@ xkbcommon      = dependency('xkbcommon')
 cairo          = dependency('cairo')
 pango          = dependency('pango')
 pangocairo     = dependency('pangocairo')
-gdk_pixbuf     = dependency('gdk-pixbuf-2.0', required: false)
+gdk_pixbuf     = dependency('gdk-pixbuf-2.0', required: get_option('gdk-pixbuf'))
 pixman         = dependency('pixman-1')
+libevdev       = dependency('libevdev')
 libinput       = dependency('libinput', version: '>=1.6.0')
-libpam         = cc.find_library('pam', required: false)
-crypt          = cc.find_library('crypt', required: false)
-systemd        = dependency('libsystemd', required: false)
-elogind        = dependency('libelogind', required: false)
+systemd        = dependency('libsystemd', version: '>=239', required: false)
+elogind        = dependency('libelogind', version: '>=239', required: false)
+xcb            = dependency('xcb', required: get_option('xwayland'))
 math           = cc.find_library('m')
 rt             = cc.find_library('rt')
 git            = find_program('git', required: false)
 
-conf_data = configuration_data()
-
-conf_data.set10('HAVE_XWAYLAND', get_option('enable-xwayland'))
-if get_option('enable-xwayland')
-	xcb = dependency('xcb')
+# Try first to find wlroots as a subproject, then as a system dependency
+wlroots_proj = subproject('wlroots', required: false)
+if wlroots_proj.found()
+	wlroots = wlroots_proj.get_variable('wlroots')
+	wlroots_conf = wlroots_proj.get_variable('conf_data')
+	wlroots_has_xwayland = wlroots_conf.get('WLR_HAS_XWAYLAND') == 1
+else
+	wlroots = dependency('wlroots')
+	wlroots_has_xwayland = cc.get_define('WLR_HAS_XWAYLAND', prefix: '#include <wlr/config.h>', dependencies: wlroots) == '1'
 endif
 
+if get_option('xwayland').enabled() and not wlroots_has_xwayland
+	error('Cannot enable Xwayland in sway: wlroots has been built without Xwayland support')
+endif
+have_xwayland = xcb.found() and wlroots_has_xwayland
+
+tray_deps_found = systemd.found() or elogind.found()
+if get_option('tray').enabled() and not tray_deps_found
+	error('Building with -Dtray=enabled, but libsystemd and libelogind have not been not found')
+endif
+have_tray = (not get_option('tray').disabled()) and tray_deps_found
+
+conf_data = configuration_data()
+
+conf_data.set10('HAVE_XWAYLAND', have_xwayland)
 conf_data.set10('HAVE_GDK_PIXBUF', gdk_pixbuf.found())
 conf_data.set10('HAVE_SYSTEMD', systemd.found())
 conf_data.set10('HAVE_ELOGIND', elogind.found())
+conf_data.set10('HAVE_TRAY', have_tray)
 
 if not systemd.found() and not elogind.found()
 	warning('The sway binary must be setuid when compiled without (e)logind')
 	warning('You must do this manually post-install: chmod a+s /path/to/sway')
 endif
 
-scdoc = find_program('scdoc', required: false)
-
+scdoc = find_program('scdoc', required: get_option('man-pages'))
 if scdoc.found()
 	sh = find_program('sh')
 	mandir = get_option('mandir')
@@ -84,9 +103,7 @@ if scdoc.found()
 		'sway/sway-bar.5.scd',
 		'sway/sway-input.5.scd',
 		'sway/sway-output.5.scd',
-		'swaylock/swaylock.1.scd',
 		'swaymsg/swaymsg.1.scd',
-		'swayidle/swayidle.1.scd',
 		'swaynag/swaynag.1.scd',
 		'swaynag/swaynag.5.scd',
 	]
@@ -124,17 +141,6 @@ else
 endif
 add_project_arguments('-DSWAY_VERSION=@0@'.format(version), language: 'c')
 
-if get_option('use_rpath')
-	if get_option('custom_rpath') == ''
-		# default to platform specific libdir, one level up from the binary
-		rpathdir = join_paths('$ORIGIN', '..', '$LIB')
-	else
-		rpathdir = get_option('custom_rpath')
-	endif
-else
-	rpathdir = ''
-endif
-
 sway_inc = include_directories('include')
 
 subdir('include')
@@ -146,9 +152,7 @@ subdir('swaymsg')
 subdir('client')
 subdir('swaybg')
 subdir('swaybar')
-subdir('swayidle')
 subdir('swaynag')
-subdir('swaylock')
 
 config = configuration_data()
 config.set('datadir', join_paths(prefix, datadir))
@@ -183,7 +187,7 @@ install_data(
 	install_dir: datadir + '/wayland-sessions'
 )
 
-if (get_option('default-wallpaper'))
+if get_option('default-wallpaper')
 	wallpaper_files = files(
 		'assets/Sway_Wallpaper_Blue_768x1024.png',
 		'assets/Sway_Wallpaper_Blue_768x1024_Portrait.png',
@@ -199,10 +203,9 @@ if (get_option('default-wallpaper'))
 	install_data(wallpaper_files, install_dir: wallpaper_install_dir)
 endif
 
-if (get_option('zsh-completions'))
+if get_option('zsh-completions')
 	zsh_files = files(
 		'completions/zsh/_sway',
-		'completions/zsh/_swaylock',
 		'completions/zsh/_swaymsg',
 	)
 	zsh_install_dir = datadir + '/zsh/site-functions'
@@ -210,11 +213,10 @@ if (get_option('zsh-completions'))
 	install_data(zsh_files, install_dir: zsh_install_dir)
 endif
 
-if (get_option('bash-completions'))
+if get_option('bash-completions')
 	bash_files = files(
 		'completions/bash/sway',
-		'completions/bash/swayidle',
-		'completions/bash/swaylock',
+		'completions/bash/swaybar',
 		'completions/bash/swaymsg',
 	)
 	bash_install_dir = datadir + '/bash-completion/completions'
@@ -222,11 +224,9 @@ if (get_option('bash-completions'))
 	install_data(bash_files, install_dir: bash_install_dir)
 endif
 
-if (get_option('fish-completions'))
+if get_option('fish-completions')
 	fish_files = files(
 		'completions/fish/sway.fish',
-		'completions/fish/swayidle.fish',
-		'completions/fish/swaylock.fish',
 		'completions/fish/swaymsg.fish',
 		'completions/fish/swaynag.fish',
 	)

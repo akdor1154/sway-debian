@@ -15,14 +15,16 @@
 
 struct cmd_results *cmd_exec_always(int argc, char **argv) {
 	struct cmd_results *error = NULL;
-	if (!config->active || config->validating) return cmd_results_new(CMD_DEFER, NULL, NULL);
+	if (!config->active || config->validating) {
+		return cmd_results_new(CMD_DEFER, NULL);
+	}
 	if ((error = checkarg(argc, argv[-1], EXPECTED_AT_LEAST, 1))) {
 		return error;
 	}
 
 	char *tmp = NULL;
 	if (strcmp(argv[0], "--no-startup-id") == 0) {
-		wlr_log(WLR_INFO, "exec switch '--no-startup-id' not supported, ignored.");
+		sway_log(SWAY_INFO, "exec switch '--no-startup-id' not supported, ignored.");
 		--argc; ++argv;
 		if ((error = checkarg(argc, argv[-1], EXPECTED_AT_LEAST, 1))) {
 			return error;
@@ -41,11 +43,11 @@ struct cmd_results *cmd_exec_always(int argc, char **argv) {
 	strncpy(cmd, tmp, sizeof(cmd) - 1);
 	cmd[sizeof(cmd) - 1] = 0;
 	free(tmp);
-	wlr_log(WLR_DEBUG, "Executing %s", cmd);
+	sway_log(SWAY_DEBUG, "Executing %s", cmd);
 
 	int fd[2];
 	if (pipe(fd) != 0) {
-		wlr_log(WLR_ERROR, "Unable to create pipe for fork");
+		sway_log(SWAY_ERROR, "Unable to create pipe for fork");
 	}
 
 	pid_t pid, child;
@@ -71,7 +73,7 @@ struct cmd_results *cmd_exec_always(int argc, char **argv) {
 	} else if (pid < 0) {
 		close(fd[0]);
 		close(fd[1]);
-		return cmd_results_new(CMD_FAILURE, argv[-1], "fork() failed");
+		return cmd_results_new(CMD_FAILURE, "fork() failed");
 	}
 	close(fd[1]); // close write
 	ssize_t s = 0;
@@ -82,12 +84,11 @@ struct cmd_results *cmd_exec_always(int argc, char **argv) {
 	// cleanup child process
 	waitpid(pid, NULL, 0);
 	if (child > 0) {
-		wlr_log(WLR_DEBUG, "Child process created with pid %d", child);
+		sway_log(SWAY_DEBUG, "Child process created with pid %d", child);
 		root_record_workspace_pid(child);
 	} else {
-		return cmd_results_new(CMD_FAILURE, argv[-1],
-			"Second fork() failed");
+		return cmd_results_new(CMD_FAILURE, "Second fork() failed");
 	}
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }

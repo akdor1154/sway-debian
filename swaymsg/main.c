@@ -9,10 +9,9 @@
 #include <sys/socket.h>
 #include <ctype.h>
 #include <unistd.h>
-#include <json-c/json.h>
+#include <json.h>
 #include "stringop.h"
 #include "ipc-client.h"
-#include "readline.h"
 #include "log.h"
 
 void sway_terminate(int exit_code) {
@@ -114,7 +113,7 @@ static const char *pretty_type_name(const char *name) {
 }
 
 static void pretty_print_input(json_object *i) {
-	json_object *id, *name, *type, *product, *vendor, *kbdlayout;
+	json_object *id, *name, *type, *product, *vendor, *kbdlayout, *events;
 	json_object_object_get_ex(i, "identifier", &id);
 	json_object_object_get_ex(i, "name", &name);
 	json_object_object_get_ex(i, "type", &type);
@@ -138,6 +137,10 @@ static void pretty_print_input(json_object *i) {
 	if (json_object_object_get_ex(i, "xkb_active_layout_name", &kbdlayout)) {
 		printf("  Active Keyboard Layout: %s\n",
 			json_object_get_string(kbdlayout));
+	}
+
+	if (json_object_object_get_ex(i, "libinput_send_events", &events)) {
+		printf("  Libinput Send Events: %s\n", json_object_get_string(events));
 	}
 
 	printf("\n");
@@ -314,7 +317,7 @@ int main(int argc, char **argv) {
 	char *socket_path = NULL;
 	char *cmdtype = NULL;
 
-	wlr_log_init(WLR_INFO, NULL);
+	sway_log_init(SWAY_INFO, NULL);
 
 	static struct option long_options[] = {
 		{"help", no_argument, NULL, 'h'},
@@ -418,7 +421,7 @@ int main(int argc, char **argv) {
 	free(cmdtype);
 
 	if (monitor && type != IPC_SUBSCRIBE) {
-		wlr_log(WLR_ERROR, "Monitor can only be used with -t SUBSCRIBE");
+		sway_log(SWAY_ERROR, "Monitor can only be used with -t SUBSCRIBE");
 		free(socket_path);
 		return 1;
 	}

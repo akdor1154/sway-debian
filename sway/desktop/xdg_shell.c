@@ -13,7 +13,6 @@
 #include "sway/input/input-manager.h"
 #include "sway/input/seat.h"
 #include "sway/output.h"
-#include "sway/server.h"
 #include "sway/tree/arrange.h"
 #include "sway/tree/container.h"
 #include "sway/tree/view.h"
@@ -217,7 +216,7 @@ static bool is_transient_for(struct sway_view *child,
 		return false;
 	}
 	struct wlr_xdg_surface *surface = child->wlr_xdg_surface;
-	while (surface) {
+	while (surface && surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
 		if (surface->toplevel->parent == ancestor->wlr_xdg_surface) {
 			return true;
 		}
@@ -231,8 +230,9 @@ static void _close(struct sway_view *view) {
 		return;
 	}
 	struct wlr_xdg_surface *surface = view->wlr_xdg_surface;
-	if (surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
-		wlr_xdg_surface_send_close(surface);
+	if (surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL
+			&& surface->toplevel) {
+		wlr_xdg_toplevel_send_close(surface);
 	}
 }
 
@@ -240,7 +240,10 @@ static void close_popups_iterator(struct wlr_surface *surface,
 		int sx, int sy, void *data) {
 	struct wlr_xdg_surface *xdg_surface =
 		wlr_xdg_surface_from_wlr_surface(surface);
-	wlr_xdg_surface_send_close(xdg_surface);
+	if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP
+			&& xdg_surface->popup) {
+		wlr_xdg_popup_destroy(xdg_surface);
+	}
 }
 
 static void close_popups(struct sway_view *view) {
@@ -288,10 +291,9 @@ static void handle_commit(struct wl_listener *listener, void *data) {
 		wlr_xdg_surface_get_geometry(xdg_surface, &new_geo);
 		struct sway_container *con = view->container;
 
-		if ((new_geo.width != con->content_width ||
-					new_geo.height != con->content_height) &&
-				container_is_floating(con)) {
-			// A floating view has unexpectedly sent a new size
+		if ((new_geo.width != con->surface_width ||
+					new_geo.height != con->surface_height)) {
+			// The view has unexpectedly sent a new size
 			desktop_damage_view(view);
 			view_update_size(view, new_geo.width, new_geo.height);
 			memcpy(&view->geometry, &new_geo, sizeof(struct wlr_box));
@@ -346,7 +348,7 @@ static void handle_request_fullscreen(struct wl_listener *listener, void *data) 
 
 	container_set_fullscreen(view->container, e->fullscreen);
 
-	arrange_workspace(view->container->workspace);
+	arrange_root();
 	transaction_commit_dirty();
 }
 
@@ -360,7 +362,7 @@ static void handle_request_move(struct wl_listener *listener, void *data) {
 	struct wlr_xdg_toplevel_move_event *e = data;
 	struct sway_seat *seat = e->seat->seat->data;
 	if (e->serial == seat->last_button_serial) {
-		seat_begin_move_floating(seat, view->container, seat->last_button);
+		seatop_begin_move_floating(seat, view->container, seat->last_button);
 	}
 }
 
@@ -374,7 +376,7 @@ static void handle_request_resize(struct wl_listener *listener, void *data) {
 	struct wlr_xdg_toplevel_resize_event *e = data;
 	struct sway_seat *seat = e->seat->seat->data;
 	if (e->serial == seat->last_button_serial) {
-		seat_begin_resize_floating(seat, view->container,
+		seatop_begin_resize_floating(seat, view->container,
 				seat->last_button, e->edges);
 	}
 }
@@ -476,16 +478,14 @@ struct sway_view *view_from_wlr_xdg_surface(
 }
 
 void handle_xdg_shell_surface(struct wl_listener *listener, void *data) {
-	struct sway_server *server = wl_container_of(listener, server,
-		xdg_shell_surface);
 	struct wlr_xdg_surface *xdg_surface = data;
 
 	if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP) {
-		wlr_log(WLR_DEBUG, "New xdg_shell popup");
+		sway_log(SWAY_DEBUG, "New xdg_shell popup");
 		return;
 	}
 
-	wlr_log(WLR_DEBUG, "New xdg_shell toplevel title='%s' app_id='%s'",
+	sway_log(SWAY_DEBUG, "New xdg_shell toplevel title='%s' app_id='%s'",
 		xdg_surface->toplevel->title, xdg_surface->toplevel->app_id);
 	wlr_xdg_surface_ping(xdg_surface);
 

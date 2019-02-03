@@ -25,6 +25,12 @@ enum sway_container_border {
 	B_CSD,
 };
 
+enum sway_fullscreen_mode {
+	FULLSCREEN_NONE,
+	FULLSCREEN_WORKSPACE,
+	FULLSCREEN_GLOBAL,
+};
+
 struct sway_root;
 struct sway_output;
 struct sway_workspace;
@@ -38,7 +44,7 @@ struct sway_container_state {
 	double x, y;
 	double width, height;
 
-	bool is_fullscreen;
+	enum sway_fullscreen_mode fullscreen_mode;
 
 	struct sway_workspace *workspace;
 	struct sway_container *parent;
@@ -82,10 +88,17 @@ struct sway_container {
 	double saved_x, saved_y;
 	double saved_width, saved_height;
 
+	// These are in layout coordinates.
 	double content_x, content_y;
 	int content_width, content_height;
 
-	bool is_fullscreen;
+	// In most cases this is the same as the content x and y, but if the view
+	// refuses to resize to the content dimensions then it can be smaller.
+	// These are in layout coordinates.
+	double surface_x, surface_y;
+	double surface_width, surface_height;
+
+	enum sway_fullscreen_mode fullscreen_mode;
 
 	enum sway_container_border border;
 
@@ -249,7 +262,13 @@ bool container_has_urgent_child(struct sway_container *container);
  */
 void container_end_mouse_operation(struct sway_container *container);
 
-void container_set_fullscreen(struct sway_container *container, bool enable);
+void container_set_fullscreen(struct sway_container *con,
+		enum sway_fullscreen_mode mode);
+
+/**
+ * Convenience function.
+ */
+void container_fullscreen_disable(struct sway_container *con);
 
 /**
  * Return true if the container is floating, or a child of a floating split
@@ -280,9 +299,9 @@ enum sway_container_layout container_parent_layout(struct sway_container *con);
 enum sway_container_layout container_current_parent_layout(
 		struct sway_container *con);
 
-list_t *container_get_siblings(const struct sway_container *container);
+list_t *container_get_siblings(struct sway_container *container);
 
-int container_sibling_index(const struct sway_container *child);
+int container_sibling_index(struct sway_container *child);
 
 list_t *container_get_current_siblings(struct sway_container *container);
 
@@ -332,5 +351,9 @@ bool container_has_mark(struct sway_container *container, char *mark);
 void container_add_mark(struct sway_container *container, char *mark);
 
 void container_update_marks_textures(struct sway_container *container);
+
+void container_raise_floating(struct sway_container *con);
+
+bool container_is_scratchpad_hidden(struct sway_container *con);
 
 #endif

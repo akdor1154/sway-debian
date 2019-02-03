@@ -4,14 +4,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <wlr/util/log.h>
 #include "sway/commands.h"
 #include "log.h"
 
-static const char* min_usage =
+static const char min_usage[] =
 	"Expected 'floating_minimum_size <width> x <height>'";
 
-static const char* max_usage =
+static const char max_usage[] =
 	"Expected 'floating_maximum_size <width> x <height>'";
 
 static struct cmd_results *handle_command(int argc, char **argv, char *cmd_name,
@@ -39,7 +38,7 @@ static struct cmd_results *handle_command(int argc, char **argv, char *cmd_name,
 	*config_width = width;
 	*config_height = height;
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 struct cmd_results *cmd_floating_minimum_size(int argc, char **argv) {

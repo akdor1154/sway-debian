@@ -7,11 +7,10 @@
 struct seat_config *new_seat_config(const char* name) {
 	struct seat_config *seat = calloc(1, sizeof(struct seat_config));
 	if (!seat) {
-		wlr_log(WLR_DEBUG, "Unable to allocate seat config");
+		sway_log(SWAY_DEBUG, "Unable to allocate seat config");
 		return NULL;
 	}
 
-	wlr_log(WLR_DEBUG, "new_seat_config(%s)", name);
 	seat->name = strdup(name);
 	if (!sway_assert(seat->name, "could not allocate name for seat")) {
 		free(seat);
@@ -26,15 +25,63 @@ struct seat_config *new_seat_config(const char* name) {
 		free(seat);
 		return NULL;
 	}
+	seat->hide_cursor_timeout = -1;
+	seat->allow_constrain = CONSTRAIN_DEFAULT;
 
 	return seat;
+}
+
+static void merge_wildcard_on_all(struct seat_config *wildcard) {
+	for (int i = 0; i < config->seat_configs->length; i++) {
+		struct seat_config *sc = config->seat_configs->items[i];
+		if (strcmp(wildcard->name, sc->name) != 0) {
+			sway_log(SWAY_DEBUG, "Merging seat * config on %s", sc->name);
+			merge_seat_config(sc, wildcard);
+		}
+	}
+}
+
+struct seat_config *store_seat_config(struct seat_config *sc) {
+	bool wildcard = strcmp(sc->name, "*") == 0;
+	if (wildcard) {
+		merge_wildcard_on_all(sc);
+	}
+
+	int i = list_seq_find(config->seat_configs, seat_name_cmp, sc->name);
+	if (i >= 0) {
+		sway_log(SWAY_DEBUG, "Merging on top of existing seat config");
+		struct seat_config *current = config->seat_configs->items[i];
+		merge_seat_config(current, sc);
+		free_seat_config(sc);
+		sc = current;
+	} else if (!wildcard) {
+		sway_log(SWAY_DEBUG, "Adding non-wildcard seat config");
+		i = list_seq_find(config->seat_configs, seat_name_cmp, "*");
+		if (i >= 0) {
+			sway_log(SWAY_DEBUG, "Merging on top of seat * config");
+			struct seat_config *current = new_seat_config(sc->name);
+			merge_seat_config(current, config->seat_configs->items[i]);
+			merge_seat_config(current, sc);
+			free_seat_config(sc);
+			sc = current;
+		}
+		list_add(config->seat_configs, sc);
+	} else {
+		// New wildcard config. Just add it
+		sway_log(SWAY_DEBUG, "Adding seat * config");
+		list_add(config->seat_configs, sc);
+	}
+
+	sway_log(SWAY_DEBUG, "Config stored for seat %s", sc->name);
+
+	return sc;
 }
 
 struct seat_attachment_config *seat_attachment_config_new(void) {
 	struct seat_attachment_config *attachment =
 		calloc(1, sizeof(struct seat_attachment_config));
 	if (!attachment) {
-		wlr_log(WLR_DEBUG, "cannot allocate attachment config");
+		sway_log(SWAY_DEBUG, "cannot allocate attachment config");
 		return NULL;
 	}
 	return attachment;
@@ -65,11 +112,6 @@ static void merge_seat_attachment_config(struct seat_attachment_config *dest,
 }
 
 void merge_seat_config(struct seat_config *dest, struct seat_config *source) {
-	if (source->name) {
-		free(dest->name);
-		dest->name = strdup(source->name);
-	}
-
 	if (source->fallback != -1) {
 		dest->fallback = source->fallback;
 	}
@@ -97,6 +139,14 @@ void merge_seat_config(struct seat_config *dest, struct seat_config *source) {
 			}
 		}
 	}
+
+	if (source->hide_cursor_timeout != -1) {
+		dest->hide_cursor_timeout = source->hide_cursor_timeout;
+	}
+
+	if (source->allow_constrain != CONSTRAIN_DEFAULT) {
+		dest->allow_constrain = source->allow_constrain;
+	}
 }
 
 struct seat_config *copy_seat_config(struct seat_config *seat) {
@@ -117,11 +167,8 @@ void free_seat_config(struct seat_config *seat) {
 
 	free(seat->name);
 	for (int i = 0; i < seat->attachments->length; ++i) {
-		struct seat_attachment_config *attachment =
-			seat->attachments->items[i];
-		seat_attachment_config_free(attachment);
+		seat_attachment_config_free(seat->attachments->items[i]);
 	}
-
 	list_free(seat->attachments);
 	free(seat);
 }

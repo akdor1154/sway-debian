@@ -21,22 +21,24 @@ static bool terminal_execute(char *terminal, char *command) {
 	char fname[] = "/tmp/swaynagXXXXXX";
 	FILE *tmp= fdopen(mkstemp(fname), "w");
 	if (!tmp) {
-		wlr_log(WLR_ERROR, "Failed to create temp script");
+		sway_log(SWAY_ERROR, "Failed to create temp script");
 		return false;
 	}
-	wlr_log(WLR_DEBUG, "Created temp script: %s", fname);
+	sway_log(SWAY_DEBUG, "Created temp script: %s", fname);
 	fprintf(tmp, "#!/bin/sh\nrm %s\n%s", fname, command);
 	fclose(tmp);
 	chmod(fname, S_IRUSR | S_IWUSR | S_IXUSR);
-	char cmd[strlen(terminal) + strlen(" -e ") + strlen(fname) + 1];
+	char *cmd = malloc(sizeof(char) * (strlen(terminal) + strlen(" -e ") + strlen(fname) + 1));
 	sprintf(cmd, "%s -e %s", terminal, fname);
 	execl("/bin/sh", "/bin/sh", "-c", cmd, NULL);
-	return true;
+	sway_log_errno(SWAY_ERROR, "Failed to run command, execl() returned.");
+	free(cmd);
+	return false;
 }
 
 static void swaynag_button_execute(struct swaynag *swaynag,
 		struct swaynag_button *button) {
-	wlr_log(WLR_DEBUG, "Executing [%s]: %s", button->text, button->action);
+	sway_log(SWAY_DEBUG, "Executing [%s]: %s", button->text, button->action);
 	if (button->type == SWAYNAG_ACTION_DISMISS) {
 		swaynag->run_display = false;
 	} else if (button->type == SWAYNAG_ACTION_EXPAND) {
@@ -50,14 +52,14 @@ static void swaynag_button_execute(struct swaynag *swaynag,
 				// Child of the child. Will be reparented to the init process
 				char *terminal = getenv("TERMINAL");
 				if (button->terminal && terminal && strlen(terminal)) {
-					wlr_log(WLR_DEBUG, "Found $TERMINAL: %s", terminal);
+					sway_log(SWAY_DEBUG, "Found $TERMINAL: %s", terminal);
 					if (!terminal_execute(terminal, button->action)) {
 						swaynag_destroy(swaynag);
 						exit(EXIT_FAILURE);
 					}
 				} else {
 					if (button->terminal) {
-						wlr_log(WLR_DEBUG,
+						sway_log(SWAY_DEBUG,
 								"$TERMINAL not found. Running directly");
 					}
 					execl("/bin/sh", "/bin/sh", "-c", button->action, NULL);
@@ -96,7 +98,7 @@ static void surface_enter(void *data, struct wl_surface *surface,
 	struct swaynag_output *swaynag_output;
 	wl_list_for_each(swaynag_output, &swaynag->outputs, link) {
 		if (swaynag_output->wl_output == output) {
-			wlr_log(WLR_DEBUG, "Surface enter on output %s",
+			sway_log(SWAY_DEBUG, "Surface enter on output %s",
 					swaynag_output->name);
 			swaynag->output = swaynag_output;
 			swaynag->scale = swaynag->output->scale;
@@ -129,6 +131,8 @@ static void update_cursor(struct swaynag *swaynag) {
 			pointer->cursor_surface,
 			pointer->cursor_image->hotspot_x / swaynag->scale,
 			pointer->cursor_image->hotspot_y / swaynag->scale);
+	wl_surface_damage_buffer(pointer->cursor_surface, 0, 0,
+			INT32_MAX, INT32_MAX);
 	wl_surface_commit(pointer->cursor_surface);
 }
 
@@ -269,10 +273,10 @@ static void xdg_output_handle_name(void *data,
 		struct zxdg_output_v1 *xdg_output, const char *name) {
 	struct swaynag_output *swaynag_output = data;
 	char *outname = swaynag_output->swaynag->type->output;
-	wlr_log(WLR_DEBUG, "Checking against output %s for %s", name, outname);
+	sway_log(SWAY_DEBUG, "Checking against output %s for %s", name, outname);
 	if (!swaynag_output->swaynag->output && outname && name
 			&& strcmp(outname, name) == 0) {
-		wlr_log(WLR_DEBUG, "Using output %s", name);
+		sway_log(SWAY_DEBUG, "Using output %s", name);
 		swaynag_output->swaynag->output = swaynag_output;
 	}
 	swaynag_output->name = strdup(name);
@@ -293,7 +297,7 @@ static void handle_global(void *data, struct wl_registry *registry,
 	struct swaynag *swaynag = data;
 	if (strcmp(interface, wl_compositor_interface.name) == 0) {
 		swaynag->compositor = wl_registry_bind(registry, name,
-				&wl_compositor_interface, 3);
+				&wl_compositor_interface, 4);
 	} else if (strcmp(interface, wl_seat_interface.name) == 0) {
 		swaynag->seat = wl_registry_bind(registry, name, &wl_seat_interface, 1);
 		wl_seat_add_listener(swaynag->seat, &seat_listener, swaynag);
@@ -364,7 +368,7 @@ void swaynag_setup(struct swaynag *swaynag) {
 	}
 
 	if (!swaynag->output && swaynag->type->output) {
-		wlr_log(WLR_ERROR, "Output '%s' not found", swaynag->type->output);
+		sway_log(SWAY_ERROR, "Output '%s' not found", swaynag->type->output);
 		swaynag_destroy(swaynag);
 		exit(EXIT_FAILURE);
 	}
@@ -407,15 +411,13 @@ void swaynag_destroy(struct swaynag *swaynag) {
 	swaynag->run_display = false;
 
 	free(swaynag->message);
-	while (swaynag->buttons->length) {
-		struct swaynag_button *button = swaynag->buttons->items[0];
-		list_del(swaynag->buttons, 0);
+	for (int i = 0; i < swaynag->buttons->length; ++i) {
+		struct swaynag_button *button = swaynag->buttons->items[i];
 		free(button->text);
 		free(button->action);
 		free(button);
 	}
 	list_free(swaynag->buttons);
-	free(swaynag->details.button_details);
 	free(swaynag->details.message);
 	free(swaynag->details.button_up.text);
 	free(swaynag->details.button_down.text);

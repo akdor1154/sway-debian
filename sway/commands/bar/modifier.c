@@ -1,8 +1,8 @@
 #include <string.h>
 #include "sway/commands.h"
+#include "sway/input/keyboard.h"
 #include "log.h"
 #include "stringop.h"
-#include "util.h"
 
 struct cmd_results *bar_cmd_modifier(int argc, char **argv) {
 	struct cmd_results *error = NULL;
@@ -11,7 +11,7 @@ struct cmd_results *bar_cmd_modifier(int argc, char **argv) {
 	}
 
 	if (!config->current_bar) {
-		return cmd_results_new(CMD_FAILURE, "modifier", "No bar defined.");
+		return cmd_results_new(CMD_FAILURE, "No bar defined.");
 	}
 
 	uint32_t mod = 0;
@@ -20,17 +20,16 @@ struct cmd_results *bar_cmd_modifier(int argc, char **argv) {
 		uint32_t tmp_mod;
 		if ((tmp_mod = get_modifier_mask_by_name(split->items[i])) > 0) {
 			mod |= tmp_mod;
-			continue;
 		} else {
-			error = cmd_results_new(CMD_INVALID, "modifier",
-				"Unknown modifier '%s'", split->items[i]);
-			free_flat_list(split);
+			error = cmd_results_new(CMD_INVALID,
+				"Unknown modifier '%s'", (char *)split->items[i]);
+			list_free_items_and_destroy(split);
 			return error;
 		}
 	}
-	free_flat_list(split);
+	list_free_items_and_destroy(split);
 	config->current_bar->modifier = mod;
-	wlr_log(WLR_DEBUG,
+	sway_log(SWAY_DEBUG,
 			"Show/Hide the bar when pressing '%s' in hide mode.", argv[0]);
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }

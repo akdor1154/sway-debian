@@ -3,10 +3,7 @@
 
 #include "list.h"
 
-// array of whitespace characters to use for delims
-extern const char whitespace[];
-
-char *strip_whitespace(char *str);
+void strip_whitespace(char *str);
 char *strip_comments(char *str);
 void strip_quotes(char *str);
 
@@ -17,9 +14,8 @@ char *lenient_strncat(char *dest, const char *src, size_t len);
 // strcmp that also handles null pointers.
 int lenient_strcmp(char *a, char *b);
 
-// Simply split a string with delims, free with `free_flat_list`
+// Simply split a string with delims, free with `list_free_items_and_destroy`
 list_t *split_string(const char *str, const char *delims);
-void free_flat_list(list_t *list);
 
 // Splits an argument string, keeping quotes intact
 char **split_args(const char *str, int *argc);

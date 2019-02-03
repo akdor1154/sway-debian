@@ -1,18 +1,17 @@
 #define _POSIX_C_SOURCE 200809
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
-#include <wlr/util/log.h>
 #include "sway/commands.h"
 #include "sway/config.h"
-#include "util.h"
+#include "log.h"
 
 // Must be in alphabetical order for bsearch
 static struct cmd_handler bar_handlers[] = {
-	{ "activate_button", bar_cmd_activate_button },
+	{ "bindcode", bar_cmd_bindcode },
 	{ "binding_mode_indicator", bar_cmd_binding_mode_indicator },
 	{ "bindsym", bar_cmd_bindsym },
 	{ "colors", bar_cmd_colors },
-	{ "context_button", bar_cmd_context_button },
 	{ "font", bar_cmd_font },
 	{ "gaps", bar_cmd_gaps },
 	{ "height", bar_cmd_height },
@@ -23,11 +22,14 @@ static struct cmd_handler bar_handlers[] = {
 	{ "output", bar_cmd_output },
 	{ "pango_markup", bar_cmd_pango_markup },
 	{ "position", bar_cmd_position },
-	{ "secondary_button", bar_cmd_secondary_button },
 	{ "separator_symbol", bar_cmd_separator_symbol },
 	{ "status_command", bar_cmd_status_command },
+	{ "status_edge_padding", bar_cmd_status_edge_padding },
+	{ "status_padding", bar_cmd_status_padding },
 	{ "strip_workspace_name", bar_cmd_strip_workspace_name },
 	{ "strip_workspace_numbers", bar_cmd_strip_workspace_numbers },
+	{ "tray_bindcode", bar_cmd_tray_bindcode },
+	{ "tray_bindsym", bar_cmd_tray_bindsym },
 	{ "tray_output", bar_cmd_tray_output },
 	{ "tray_padding", bar_cmd_tray_padding },
 	{ "workspace_buttons", bar_cmd_workspace_buttons },
@@ -58,17 +60,17 @@ struct cmd_results *cmd_bar(int argc, char **argv) {
 		for (int i = 0; i < config->bars->length; ++i) {
 			struct bar_config *item = config->bars->items[i];
 			if (strcmp(item->id, argv[0]) == 0) {
-				wlr_log(WLR_DEBUG, "Selecting bar: %s", argv[0]);
+				sway_log(SWAY_DEBUG, "Selecting bar: %s", argv[0]);
 				bar = item;
 				break;
 			}
 		}
 		if (!bar) {
 			spawn = !config->reading;
-			wlr_log(WLR_DEBUG, "Creating bar: %s", argv[0]);
+			sway_log(SWAY_DEBUG, "Creating bar: %s", argv[0]);
 			bar = default_bar_config();
 			if (!bar) {
-				return cmd_results_new(CMD_FAILURE, "bar",
+				return cmd_results_new(CMD_FAILURE,
 						"Unable to allocate bar state");
 			}
 
@@ -82,23 +84,22 @@ struct cmd_results *cmd_bar(int argc, char **argv) {
 		// Create new bar with default values
 		struct bar_config *bar = default_bar_config();
 		if (!bar) {
-			return cmd_results_new(CMD_FAILURE, "bar",
+			return cmd_results_new(CMD_FAILURE,
 					"Unable to allocate bar state");
 		}
 
 		// set bar id
-		const int len = 5 + numlen(config->bars->length - 1); // "bar-"+i+\0
+		const int len = snprintf(NULL, 0, "bar-%d", config->bars->length - 1) + 1;
 		bar->id = malloc(len * sizeof(char));
 		if (bar->id) {
 			snprintf(bar->id, len, "bar-%d", config->bars->length - 1);
 		} else {
-			return cmd_results_new(CMD_FAILURE,
-					"bar", "Unable to allocate bar ID");
+			return cmd_results_new(CMD_FAILURE, "Unable to allocate bar ID");
 		}
 
 		// Set current bar
 		config->current_bar = bar;
-		wlr_log(WLR_DEBUG, "Creating bar %s", bar->id);
+		sway_log(SWAY_DEBUG, "Creating bar %s", bar->id);
 	}
 
 	if (find_handler(argv[0], bar_config_handlers,
@@ -116,7 +117,7 @@ struct cmd_results *cmd_bar(int argc, char **argv) {
 				}
 			}
 		}
-		return cmd_results_new(CMD_INVALID, "bar",
+		return cmd_results_new(CMD_INVALID,
 				"Can only be used in the config file.");
 	}
 

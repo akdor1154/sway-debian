@@ -1,10 +1,10 @@
 # sway
 
-**Sway** ("**S**irCmpwn's **Way**land compositor") це сумісний з i3 композитор
-[Wayland](http://wayland.freedesktop.org/) (**у стані розробки**).
-Ознайомтесь з [ЧаПами](https://github.com/swaywm/sway/wiki).
-Приєднуйтесь до [спільноти в IRC](http://webchat.freenode.net/?channels=sway&uio=d4)
-(#sway на irc.freenode.net).
+**Sway** це сумісний з i3 композитор [Wayland](http://wayland.freedesktop.org/)
+(**у стані розробки**).  Ознайомтесь з
+[ЧаПами](https://github.com/swaywm/sway/wiki).  Приєднуйтесь до [спільноти в
+IRC](http://webchat.freenode.net/?channels=sway&uio=d4) (#sway на
+irc.freenode.net).
 
 [![](https://sr.ht/ICd5.png)](https://sr.ht/ICd5.png)
 
@@ -57,13 +57,10 @@ Sway доступний у багатьох дистрибутивах Linux (а
 * pango
 * cairo
 * gdk-pixbuf2 *
-* pam **
 * [scdoc](https://git.sr.ht/~sircmpwn/scdoc) (required for man pages)
 * git
 
-_\*Лише для swaybar, swaybg та swaylock_
-
-_\*\*Лише для swaylock_
+_\*Лише для swaybar, swaybg_
 
 Виконайте ці команди:
 

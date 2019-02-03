@@ -11,17 +11,18 @@
 #include <strings.h>
 #include <signal.h>
 #include "sway/config.h"
+#include "sway/input/keyboard.h"
 #include "sway/output.h"
-#include "stringop.h"
+#include "config.h"
 #include "list.h"
 #include "log.h"
-#include "util.h"
+#include "stringop.h"
 
 static void terminate_swaybar(pid_t pid) {
-	wlr_log(WLR_DEBUG, "Terminating swaybar %d", pid);
+	sway_log(SWAY_DEBUG, "Terminating swaybar %d", pid);
 	int ret = kill(-pid, SIGTERM);
 	if (ret != 0) {
-		wlr_log_errno(WLR_ERROR, "Unable to terminate swaybar %d", pid);
+		sway_log_errno(SWAY_ERROR, "Unable to terminate swaybar %d", pid);
 	} else {
 		int status;
 		waitpid(pid, &status, 0);
@@ -45,17 +46,13 @@ void free_bar_config(struct bar_config *bar) {
 	free(bar->position);
 	free(bar->hidden_state);
 	free(bar->status_command);
-	free(bar->swaybar_command);
 	free(bar->font);
 	free(bar->separator_symbol);
 	for (int i = 0; i < bar->bindings->length; i++) {
-		struct bar_binding *binding = bar->bindings->items[i];
-		free_bar_binding(binding);
+		free_bar_binding(bar->bindings->items[i]);
 	}
 	list_free(bar->bindings);
-	if (bar->outputs) {
-		free_flat_list(bar->outputs);
-	}
+	list_free_items_and_destroy(bar->outputs);
 	if (bar->pid != 0) {
 		terminate_swaybar(bar->pid);
 	}
@@ -80,6 +77,16 @@ void free_bar_config(struct bar_config *bar) {
 	free(bar->colors.binding_mode_border);
 	free(bar->colors.binding_mode_bg);
 	free(bar->colors.binding_mode_text);
+#if HAVE_TRAY
+	list_free_items_and_destroy(bar->tray_outputs);
+	free(bar->icon_theme);
+
+	struct tray_binding *tray_bind = NULL, *tmp_tray_bind = NULL;
+	wl_list_for_each_safe(tray_bind, tmp_tray_bind, &bar->tray_bindings, link) {
+		wl_list_remove(&tray_bind->link);
+		free(tray_bind);
+	}
+#endif
 	free(bar);
 }
 
@@ -94,7 +101,7 @@ struct bar_config *default_bar_config(void) {
 	bar->pango_markup = false;
 	bar->swaybar_command = NULL;
 	bar->font = NULL;
-	bar->height = -1;
+	bar->height = 0;
 	bar->workspace_buttons = true;
 	bar->wrap_scroll = false;
 	bar->separator_symbol = NULL;
@@ -104,6 +111,8 @@ struct bar_config *default_bar_config(void) {
 	bar->verbose = false;
 	bar->pid = 0;
 	bar->modifier = get_modifier_mask_by_name("Mod4");
+	bar->status_padding = 1;
+	bar->status_edge_padding = 3;
 	if (!(bar->mode = strdup("dock"))) {
 	       goto cleanup;
 	}
@@ -168,6 +177,11 @@ struct bar_config *default_bar_config(void) {
 	bar->colors.binding_mode_bg = NULL;
 	bar->colors.binding_mode_text = NULL;
 
+#if HAVE_TRAY
+	bar->tray_padding = 2;
+	wl_list_init(&bar->tray_bindings);
+#endif
+
 	list_add(config->bars, bar);
 	return bar;
 cleanup:
@@ -179,7 +193,7 @@ static void invoke_swaybar(struct bar_config *bar) {
 	// Pipe to communicate errors
 	int filedes[2];
 	if (pipe(filedes) == -1) {
-		wlr_log(WLR_ERROR, "Pipe setup failed! Cannot fork into bar");
+		sway_log(SWAY_ERROR, "Pipe setup failed! Cannot fork into bar");
 		return;
 	}
 
@@ -212,17 +226,17 @@ static void invoke_swaybar(struct bar_config *bar) {
 		execvp(cmd[0], cmd);
 		exit(1);
 	}
-	wlr_log(WLR_DEBUG, "Spawned swaybar %d", bar->pid);
+	sway_log(SWAY_DEBUG, "Spawned swaybar %d", bar->pid);
 	close(filedes[0]);
 	size_t len;
 	if (read(filedes[1], &len, sizeof(size_t)) == sizeof(size_t)) {
 		char *buf = malloc(len);
 		if(!buf) {
-			wlr_log(WLR_ERROR, "Cannot allocate error string");
+			sway_log(SWAY_ERROR, "Cannot allocate error string");
 			return;
 		}
 		if (read(filedes[1], buf, len)) {
-			wlr_log(WLR_ERROR, "%s", buf);
+			sway_log(SWAY_ERROR, "%s", buf);
 		}
 		free(buf);
 	}
@@ -233,7 +247,7 @@ void load_swaybar(struct bar_config *bar) {
 	if (bar->pid != 0) {
 		terminate_swaybar(bar->pid);
 	}
-	wlr_log(WLR_DEBUG, "Invoking swaybar for bar id '%s'", bar->id);
+	sway_log(SWAY_DEBUG, "Invoking swaybar for bar id '%s'", bar->id);
 	invoke_swaybar(bar);
 }
 

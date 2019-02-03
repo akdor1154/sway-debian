@@ -12,7 +12,6 @@
 #include "sway/input/input-manager.h"
 #include "sway/input/seat.h"
 #include "sway/output.h"
-#include "sway/server.h"
 #include "sway/tree/arrange.h"
 #include "sway/tree/container.h"
 #include "sway/tree/view.h"
@@ -118,7 +117,7 @@ static struct sway_xwayland_unmanaged *create_unmanaged(
 	struct sway_xwayland_unmanaged *surface =
 		calloc(1, sizeof(struct sway_xwayland_unmanaged));
 	if (surface == NULL) {
-		wlr_log(WLR_ERROR, "Allocation failed");
+		sway_log(SWAY_ERROR, "Allocation failed");
 		return NULL;
 	}
 
@@ -334,10 +333,9 @@ static void handle_commit(struct wl_listener *listener, void *data) {
 		get_geometry(view, &new_geo);
 		struct sway_container *con = view->container;
 
-		if ((new_geo.width != con->content_width ||
-					new_geo.height != con->content_height) &&
-				container_is_floating(con)) {
-			// A floating view has unexpectedly sent a new size
+		if ((new_geo.width != con->surface_width ||
+					new_geo.height != con->surface_height)) {
+			// The view has unexpectedly sent a new size
 			// eg. The Firefox "Save As" dialog when downloading a file
 			desktop_damage_view(view);
 			view_update_size(view, new_geo.width, new_geo.height);
@@ -454,7 +452,7 @@ static void handle_request_fullscreen(struct wl_listener *listener, void *data) 
 	}
 	container_set_fullscreen(view->container, xsurface->fullscreen);
 
-	arrange_workspace(view->container->workspace);
+	arrange_root();
 	transaction_commit_dirty();
 }
 
@@ -470,7 +468,7 @@ static void handle_request_move(struct wl_listener *listener, void *data) {
 		return;
 	}
 	struct sway_seat *seat = input_manager_current_seat();
-	seat_begin_move_floating(seat, view->container, seat->last_button);
+	seatop_begin_move_floating(seat, view->container, seat->last_button);
 }
 
 static void handle_request_resize(struct wl_listener *listener, void *data) {
@@ -486,7 +484,7 @@ static void handle_request_resize(struct wl_listener *listener, void *data) {
 	}
 	struct wlr_xwayland_resize_event *e = data;
 	struct sway_seat *seat = input_manager_current_seat();
-	seat_begin_resize_floating(seat, view->container,
+	seatop_begin_resize_floating(seat, view->container,
 			seat->last_button, e->edges);
 }
 
@@ -573,17 +571,15 @@ struct sway_view *view_from_wlr_xwayland_surface(
 }
 
 void handle_xwayland_surface(struct wl_listener *listener, void *data) {
-	struct sway_server *server = wl_container_of(listener, server,
-		xwayland_surface);
 	struct wlr_xwayland_surface *xsurface = data;
 
 	if (xsurface->override_redirect) {
-		wlr_log(WLR_DEBUG, "New xwayland unmanaged surface");
+		sway_log(SWAY_DEBUG, "New xwayland unmanaged surface");
 		create_unmanaged(xsurface);
 		return;
 	}
 
-	wlr_log(WLR_DEBUG, "New xwayland surface title='%s' class='%s'",
+	sway_log(SWAY_DEBUG, "New xwayland surface title='%s' class='%s'",
 		xsurface->title, xsurface->class);
 
 	struct sway_xwayland_view *xwayland_view =
@@ -655,7 +651,7 @@ void handle_xwayland_ready(struct wl_listener *listener, void *data) {
 	xcb_connection_t *xcb_conn = xcb_connect(NULL, NULL);
 	int err = xcb_connection_has_error(xcb_conn);
 	if (err) {
-		wlr_log(WLR_ERROR, "XCB connect failed: %d", err);
+		sway_log(SWAY_ERROR, "XCB connect failed: %d", err);
 		return;
 	}
 
@@ -674,7 +670,7 @@ void handle_xwayland_ready(struct wl_listener *listener, void *data) {
 		free(reply);
 
 		if (error != NULL) {
-			wlr_log(WLR_ERROR, "could not resolve atom %s, X11 error code %d",
+			sway_log(SWAY_ERROR, "could not resolve atom %s, X11 error code %d",
 				atom_map[i], error->error_code);
 			free(error);
 			break;

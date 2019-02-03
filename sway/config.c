@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 600 // for realpath
+#define _XOPEN_SOURCE 700 // for realpath
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -13,24 +13,20 @@
 #include <limits.h>
 #include <dirent.h>
 #include <strings.h>
-#ifdef __linux__
 #include <linux/input-event-codes.h>
-#elif __FreeBSD__
-#include <dev/evdev/input-event-codes.h>
-#endif
 #include <wlr/types/wlr_output.h>
 #include "sway/input/input-manager.h"
 #include "sway/input/seat.h"
 #include "sway/commands.h"
 #include "sway/config.h"
 #include "sway/criteria.h"
+#include "sway/desktop/transaction.h"
 #include "sway/swaynag.h"
 #include "sway/tree/arrange.h"
 #include "sway/tree/root.h"
 #include "sway/tree/workspace.h"
 #include "cairo.h"
 #include "pango.h"
-#include "readline.h"
 #include "stringop.h"
 #include "list.h"
 #include "log.h"
@@ -38,26 +34,24 @@
 struct sway_config *config = NULL;
 
 static void free_mode(struct sway_mode *mode) {
-	int i;
-
 	if (!mode) {
 		return;
 	}
 	free(mode->name);
 	if (mode->keysym_bindings) {
-		for (i = 0; i < mode->keysym_bindings->length; i++) {
+		for (int i = 0; i < mode->keysym_bindings->length; i++) {
 			free_sway_binding(mode->keysym_bindings->items[i]);
 		}
 		list_free(mode->keysym_bindings);
 	}
 	if (mode->keycode_bindings) {
-		for (i = 0; i < mode->keycode_bindings->length; i++) {
+		for (int i = 0; i < mode->keycode_bindings->length; i++) {
 			free_sway_binding(mode->keycode_bindings->items[i]);
 		}
 		list_free(mode->keycode_bindings);
 	}
 	if (mode->mouse_bindings) {
-		for (i = 0; i < mode->mouse_bindings->length; i++) {
+		for (int i = 0; i < mode->mouse_bindings->length; i++) {
 			free_sway_binding(mode->mouse_bindings->items[i]);
 		}
 		list_free(mode->mouse_bindings);
@@ -211,6 +205,7 @@ static void config_defaults(struct sway_config *config) {
 	config->font_height = 17; // height of monospace 10
 	config->urgent_timeout = 500;
 	config->popup_during_fullscreen = POPUP_SMART;
+	config->xwayland = true;
 
 	config->titlebar_border_thickness = 1;
 	config->titlebar_h_padding = 5;
@@ -235,6 +230,7 @@ static void config_defaults(struct sway_config *config) {
 	config->show_marks = true;
 	config->title_align = ALIGN_LEFT;
 	config->tiling_drag = true;
+	config->tiling_drag_threshold = 9;
 
 	config->smart_gaps = false;
 	config->gaps_inner = 0;
@@ -316,27 +312,16 @@ static char *get_config_path(void) {
 		SYSCONFDIR "/i3/config",
 	};
 
-	if (!getenv("XDG_CONFIG_HOME")) {
-		char *home = getenv("HOME");
-		char *config_home = malloc(strlen(home) + strlen("/.config") + 1);
-		if (!config_home) {
-			wlr_log(WLR_ERROR, "Unable to allocate $HOME/.config");
-		} else {
-			strcpy(config_home, home);
-			strcat(config_home, "/.config");
-			setenv("XDG_CONFIG_HOME", config_home, 1);
-			wlr_log(WLR_DEBUG, "Set XDG_CONFIG_HOME to %s", config_home);
-			free(config_home);
-		}
+	char *config_home = getenv("XDG_CONFIG_HOME");
+	if (!config_home || !*config_home) {
+		config_paths[1] = "$HOME/.config/sway/config";
+		config_paths[3] = "$HOME/.config/i3/config";
 	}
 
-	wordexp_t p;
-	char *path;
-
-	int i;
-	for (i = 0; i < (int)(sizeof(config_paths) / sizeof(char *)); ++i) {
-		if (wordexp(config_paths[i], &p, 0) == 0) {
-			path = strdup(p.we_wordv[0]);
+	for (size_t i = 0; i < sizeof(config_paths) / sizeof(char *); ++i) {
+		wordexp_t p;
+		if (wordexp(config_paths[i], &p, WRDE_UNDEF) == 0) {
+			char *path = strdup(p.we_wordv[0]);
 			wordfree(&p);
 			if (file_exists(path)) {
 				return path;
@@ -345,26 +330,27 @@ static char *get_config_path(void) {
 		}
 	}
 
-	return NULL; // Not reached
+	return NULL;
 }
 
 static bool load_config(const char *path, struct sway_config *config,
 		struct swaynag_instance *swaynag) {
 	if (path == NULL) {
-		wlr_log(WLR_ERROR, "Unable to find a config file!");
+		sway_log(SWAY_ERROR, "Unable to find a config file!");
 		return false;
 	}
 
-	wlr_log(WLR_INFO, "Loading config from %s", path);
+	sway_log(SWAY_INFO, "Loading config from %s", path);
 
 	struct stat sb;
 	if (stat(path, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+		sway_log(SWAY_ERROR, "%s is a directory not a config file", path);
 		return false;
 	}
 
 	FILE *f = fopen(path, "r");
 	if (!f) {
-		wlr_log(WLR_ERROR, "Unable to open %s for reading", path);
+		sway_log(SWAY_ERROR, "Unable to open %s for reading", path);
 		return false;
 	}
 
@@ -372,7 +358,7 @@ static bool load_config(const char *path, struct sway_config *config,
 	fclose(f);
 
 	if (!config_load_success) {
-		wlr_log(WLR_ERROR, "Error(s) loading config!");
+		sway_log(SWAY_ERROR, "Error(s) loading config!");
 	}
 
 	return true;
@@ -395,7 +381,7 @@ bool load_main_config(const char *file, bool is_active, bool validating) {
 	config_defaults(config);
 	config->validating = validating;
 	if (is_active) {
-		wlr_log(WLR_DEBUG, "Performing configuration file %s",
+		sway_log(SWAY_DEBUG, "Performing configuration file %s",
 			validating ? "validation" : "reload");
 		config->reloading = true;
 		config->active = true;
@@ -405,7 +391,7 @@ bool load_main_config(const char *file, bool is_active, bool validating) {
 				&old_config->swaynag_config_errors,
 				sizeof(struct swaynag_instance));
 
-		create_default_output_configs();
+		input_manager_reset_all_inputs();
 	}
 
 	config->current_config_path = path;
@@ -419,7 +405,7 @@ bool load_main_config(const char *file, bool is_active, bool validating) {
 	/*
 	DIR *dir = opendir(SYSCONFDIR "/sway/security.d");
 	if (!dir) {
-		wlr_log(WLR_ERROR,
+		sway_log(SWAY_ERROR,
 			"%s does not exist, sway will have no security configuration"
 			" and will probably be broken", SYSCONFDIR "/sway/security.d");
 	} else {
@@ -448,7 +434,7 @@ bool load_main_config(const char *file, bool is_active, bool validating) {
 			if (stat(_path, &s) || s.st_uid != 0 || s.st_gid != 0 ||
 					(((s.st_mode & 0777) != 0644) &&
 					(s.st_mode & 0777) != 0444)) {
-				wlr_log(WLR_ERROR,
+				sway_log(SWAY_ERROR,
 					"Refusing to load %s - it must be owned by root "
 					"and mode 644 or 444", _path);
 				success = false;
@@ -457,7 +443,7 @@ bool load_main_config(const char *file, bool is_active, bool validating) {
 			}
 		}
 
-		free_flat_list(secconfigs);
+		list_free_items_and_destroy(secconfigs);
 	}
 	*/
 
@@ -477,6 +463,11 @@ bool load_main_config(const char *file, bool is_active, bool validating) {
 		config->reloading = false;
 		if (config->swaynag_config_errors.pid > 0) {
 			swaynag_show(&config->swaynag_config_errors);
+		}
+
+		input_manager_verify_fallback_seat();
+		for (int i = 0; i < config->seat_configs->length; i++) {
+			input_manager_apply_seat_config(config->seat_configs->items[i]);
 		}
 	}
 
@@ -499,7 +490,7 @@ static bool load_include_config(const char *path, const char *parent_dir,
 		len = len + strlen(parent_dir) + 2;
 		full_path = malloc(len * sizeof(char));
 		if (!full_path) {
-			wlr_log(WLR_ERROR,
+			sway_log(SWAY_ERROR,
 				"Unable to allocate full path to included config");
 			return false;
 		}
@@ -512,7 +503,7 @@ static bool load_include_config(const char *path, const char *parent_dir,
 	free(full_path);
 
 	if (real_path == NULL) {
-		wlr_log(WLR_DEBUG, "%s not found.", path);
+		sway_log(SWAY_DEBUG, "%s not found.", path);
 		return false;
 	}
 
@@ -521,7 +512,7 @@ static bool load_include_config(const char *path, const char *parent_dir,
 	for (j = 0; j < config->config_chain->length; ++j) {
 		char *old_path = config->config_chain->items[j];
 		if (strcmp(real_path, old_path) == 0) {
-			wlr_log(WLR_DEBUG,
+			sway_log(SWAY_DEBUG,
 				"%s already included once, won't be included again.",
 				real_path);
 			free(real_path);
@@ -576,7 +567,7 @@ bool load_include_configs(const char *path, struct sway_config *config,
 	// restore wd
 	if (chdir(wd) < 0) {
 		free(wd);
-		wlr_log(WLR_ERROR, "failed to restore working directory");
+		sway_log(SWAY_ERROR, "failed to restore working directory");
 		return false;
 	}
 
@@ -584,29 +575,79 @@ bool load_include_configs(const char *path, struct sway_config *config,
 	return true;
 }
 
-static int detect_brace_on_following_line(FILE *file, char *line,
-		int line_number) {
-	int lines = 0;
-	if (line[strlen(line) - 1] != '{' && line[strlen(line) - 1] != '}') {
-		char *peeked = NULL;
-		long position = 0;
-		do {
-			free(peeked);
-			peeked = peek_line(file, lines, &position);
-			if (peeked) {
-				peeked = strip_whitespace(peeked);
-			}
-			lines++;
-		} while (peeked && strlen(peeked) == 0);
-
-		if (peeked && strlen(peeked) == 1 && peeked[0] == '{') {
-			fseek(file, position, SEEK_SET);
-		} else {
-			lines = 0;
-		}
-		free(peeked);
+void run_deferred_commands(void) {
+	if (!config->cmd_queue->length) {
+		return;
 	}
-	return lines;
+	sway_log(SWAY_DEBUG, "Running deferred commands");
+	while (config->cmd_queue->length) {
+		char *line = config->cmd_queue->items[0];
+		list_t *res_list = execute_command(line, NULL, NULL);
+		for (int i = 0; i < res_list->length; ++i) {
+			struct cmd_results *res = res_list->items[i];
+			if (res->status != CMD_SUCCESS) {
+				sway_log(SWAY_ERROR, "Error on line '%s': %s",
+						line, res->error);
+			}
+			free_cmd_results(res);
+		}
+		list_del(config->cmd_queue, 0);
+		list_free(res_list);
+		free(line);
+	}
+	transaction_commit_dirty();
+}
+
+// get line, with backslash continuation
+static ssize_t getline_with_cont(char **lineptr, size_t *line_size, FILE *file,
+		int *nlines) {
+	char *next_line = NULL;
+	size_t next_line_size = 0;
+	ssize_t nread = getline(lineptr, line_size, file);
+	*nlines = nread == -1 ? 0 : 1;
+	while (nread >= 2 && strcmp(&(*lineptr)[nread - 2], "\\\n") == 0) {
+		ssize_t next_nread = getline(&next_line, &next_line_size, file);
+		if (next_nread == -1) {
+			break;
+		}
+		(*nlines)++;
+
+		nread += next_nread - 2;
+		if ((ssize_t) *line_size < nread + 1) {
+			*line_size = nread + 1;
+			*lineptr = realloc(*lineptr, *line_size);
+			if (!*lineptr) {
+				nread = -1;
+				break;
+			}
+		}
+		strcpy(&(*lineptr)[nread - next_nread], next_line);
+	}
+	free(next_line);
+	return nread;
+}
+
+static int detect_brace(FILE *file) {
+	int ret = 0;
+	int lines = 0;
+	long pos = ftell(file);
+	char *line = NULL;
+	size_t line_size = 0;
+	while ((getline(&line, &line_size, file)) != -1) {
+		lines++;
+		strip_whitespace(line);
+		if (*line) {
+			if (strcmp(line, "{") == 0) {
+				ret = lines;
+			}
+			break;
+		}
+	}
+	free(line);
+	if (ret == 0) {
+		fseek(file, pos, SEEK_SET);
+	}
+	return ret;
 }
 
 static char *expand_line(const char *block, const char *line, bool add_brace) {
@@ -614,7 +655,7 @@ static char *expand_line(const char *block, const char *line, bool add_brace) {
 		+ (add_brace ? 2 : 0) + 1;
 	char *expanded = calloc(1, size);
 	if (!expanded) {
-		wlr_log(WLR_ERROR, "Cannot allocate expanded line buffer");
+		sway_log(SWAY_ERROR, "Cannot allocate expanded line buffer");
 		return NULL;
 	}
 	snprintf(expanded, size, "%s%s%s%s", block ? block : "",
@@ -633,7 +674,7 @@ bool read_config(FILE *file, struct sway_config *config,
 		int ret_seek = fseek(file, 0, SEEK_END);
 		long ret_tell = ftell(file);
 		if (ret_seek == -1 || ret_tell == -1) {
-			wlr_log(WLR_ERROR, "Unable to get size of config file");
+			sway_log(SWAY_ERROR, "Unable to get size of config file");
 			return false;
 		}
 		config_size = ret_tell;
@@ -641,78 +682,70 @@ bool read_config(FILE *file, struct sway_config *config,
 
 		config->current_config = this_config = calloc(1, config_size + 1);
 		if (this_config == NULL) {
-			wlr_log(WLR_ERROR, "Unable to allocate buffer for config contents");
+			sway_log(SWAY_ERROR, "Unable to allocate buffer for config contents");
 			return false;
 		}
 	}
 
 	bool success = true;
 	int line_number = 0;
-	char *line;
+	char *line = NULL;
+	size_t line_size = 0;
+	ssize_t nread;
 	list_t *stack = create_list();
 	size_t read = 0;
-	while (!feof(file)) {
-		char *block = stack->length ? stack->items[0] : NULL;
-		line = read_line(file);
-		if (!line) {
-			continue;
-		}
-		line_number++;
-		wlr_log(WLR_DEBUG, "Read line %d: %s", line_number, line);
-
+	int nlines = 0;
+	while ((nread = getline_with_cont(&line, &line_size, file, &nlines)) != -1) {
 		if (reading_main_config) {
-			size_t length = strlen(line);
-
-			if (read + length > config_size) {
-				wlr_log(WLR_ERROR, "Config file changed during reading");
-				list_foreach(stack, free);
-				list_free(stack);
-				free(line);
-				return false;
+			if (read + nread > config_size) {
+				sway_log(SWAY_ERROR, "Config file changed during reading");
+				success = false;
+				break;
 			}
 
-			strcpy(this_config + read, line);
-			if (line_number != 1) {
-				this_config[read - 1] = '\n';
-			}
-			read += length + 1;
+			strcpy(&this_config[read], line);
+			read += nread;
 		}
 
-		line = strip_whitespace(line);
-		if (line[0] == '#') {
-			free(line);
+		if (line[nread - 1] == '\n') {
+			line[nread - 1] = '\0';
+		}
+
+		line_number += nlines;
+		sway_log(SWAY_DEBUG, "Read line %d: %s", line_number, line);
+
+		strip_whitespace(line);
+		if (!*line || line[0] == '#') {
 			continue;
 		}
-		if (strlen(line) == 0) {
-			free(line);
-			continue;
+		int brace_detected = 0;
+		if (line[strlen(line) - 1] != '{' && line[strlen(line) - 1] != '}') {
+			brace_detected = detect_brace(file);
+			if (brace_detected > 0) {
+				line_number += brace_detected;
+				sway_log(SWAY_DEBUG, "Detected open brace on line %d", line_number);
+			}
 		}
-		int brace_detected = detect_brace_on_following_line(file, line,
-				line_number);
-		if (brace_detected > 0) {
-			line_number += brace_detected;
-			wlr_log(WLR_DEBUG, "Detected open brace on line %d", line_number);
-		}
+		char *block = stack->length ? stack->items[0] : NULL;
 		char *expanded = expand_line(block, line, brace_detected > 0);
 		if (!expanded) {
-			list_foreach(stack, free);
-			list_free(stack);
-			free(line);
-			return false;
+			success = false;
+			break;
 		}
 		config->current_config_line_number = line_number;
 		config->current_config_line = line;
 		struct cmd_results *res;
+		char *new_block = NULL;
 		if (block && strcmp(block, "<commands>") == 0) {
 			// Special case
 			res = config_commands_command(expanded);
 		} else {
-			res = config_command(expanded);
+			res = config_command(expanded, &new_block);
 		}
 		switch(res->status) {
 		case CMD_FAILURE:
 		case CMD_INVALID:
-			wlr_log(WLR_ERROR, "Error on line %i '%s': %s (%s)", line_number,
+			sway_log(SWAY_ERROR, "Error on line %i '%s': %s (%s)", line_number,
 				line, res->error, config->current_config_path);
 			if (!config->validating) {
 				swaynag_log(config->swaynag_command, swaynag,
@@ -723,26 +756,26 @@ bool read_config(FILE *file, struct sway_config *config,
 			break;
 
 		case CMD_DEFER:
-			wlr_log(WLR_DEBUG, "Deferring command `%s'", line);
+			sway_log(SWAY_DEBUG, "Deferring command `%s'", line);
 			list_add(config->cmd_queue, strdup(expanded));
 			break;
 
 		case CMD_BLOCK_COMMANDS:
-			wlr_log(WLR_DEBUG, "Entering commands block");
+			sway_log(SWAY_DEBUG, "Entering commands block");
 			list_insert(stack, 0, "<commands>");
 			break;
 
 		case CMD_BLOCK:
-			wlr_log(WLR_DEBUG, "Entering block '%s'", res->input);
-			list_insert(stack, 0, strdup(res->input));
-			if (strcmp(res->input, "bar") == 0) {
+			sway_log(SWAY_DEBUG, "Entering block '%s'", new_block);
+			list_insert(stack, 0, strdup(new_block));
+			if (strcmp(new_block, "bar") == 0) {
 				config->current_bar = NULL;
 			}
 			break;
 
 		case CMD_BLOCK_END:
 			if (!block) {
-				wlr_log(WLR_DEBUG, "Unmatched '}' on line %i", line_number);
+				sway_log(SWAY_DEBUG, "Unmatched '}' on line %i", line_number);
 				success = false;
 				break;
 			}
@@ -750,19 +783,19 @@ bool read_config(FILE *file, struct sway_config *config,
 				config->current_bar = NULL;
 			}
 
-			wlr_log(WLR_DEBUG, "Exiting block '%s'", block);
+			sway_log(SWAY_DEBUG, "Exiting block '%s'", block);
 			list_del(stack, 0);
 			free(block);
 			memset(&config->handler_context, 0,
 					sizeof(config->handler_context));
 		default:;
 		}
+		free(new_block);
 		free(expanded);
-		free(line);
 		free_cmd_results(res);
 	}
-	list_foreach(stack, free);
-	list_free(stack);
+	free(line);
+	list_free_items_and_destroy(stack);
 	config->current_config_line_number = 0;
 	config->current_config_line = NULL;
 
@@ -778,7 +811,7 @@ void config_add_swaynag_warning(char *fmt, ...) {
 
 		char *temp = malloc(length + 1);
 		if (!temp) {
-			wlr_log(WLR_ERROR, "Failed to allocate buffer for warning.");
+			sway_log(SWAY_ERROR, "Failed to allocate buffer for warning.");
 			return;
 		}
 
@@ -820,7 +853,7 @@ char *do_var_replacement(char *str) {
 				int vvlen = strlen(var->value);
 				char *newstr = malloc(strlen(str) - vnlen + vvlen + 1);
 				if (!newstr) {
-					wlr_log(WLR_ERROR,
+					sway_log(SWAY_ERROR,
 						"Unable to allocate replacement "
 						"during variable expansion");
 					break;

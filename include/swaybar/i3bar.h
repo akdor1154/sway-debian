@@ -7,7 +7,7 @@
 struct i3bar_block {
 	struct wl_list link; // status_link::blocks
 	int ref_count;
-	char *full_text, *short_text, *align;
+	char *full_text, *short_text, *align, *min_width_str;
 	bool urgent;
 	uint32_t *color;
 	int min_width;
@@ -27,6 +27,7 @@ struct i3bar_block {
 void i3bar_block_unref(struct i3bar_block *block);
 bool i3bar_handle_readable(struct status_line *status);
 enum hotspot_event_handling i3bar_block_send_click(struct status_line *status,
-		struct i3bar_block *block, int x, int y, enum x11_button button);
+		struct i3bar_block *block, int x, int y, int rx, int ry, int w, int h,
+		uint32_t button);
 
 #endif

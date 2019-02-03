@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include <assert.h>
 #include <ctype.h>
 #include <string.h>
 #include <strings.h>
@@ -11,6 +12,21 @@
 #include "sway/tree/workspace.h"
 #include "log.h"
 #include "util.h"
+
+enum wlr_direction opposite_direction(enum wlr_direction d) {
+	switch (d) {
+	case WLR_DIRECTION_UP:
+		return WLR_DIRECTION_DOWN;
+	case WLR_DIRECTION_DOWN:
+		return WLR_DIRECTION_UP;
+	case WLR_DIRECTION_RIGHT:
+		return WLR_DIRECTION_LEFT;
+	case WLR_DIRECTION_LEFT:
+		return WLR_DIRECTION_RIGHT;
+	}
+	assert(false);
+	return 0;
+}
 
 static void restore_workspaces(struct sway_output *output) {
 	// Workspace output priority
@@ -41,12 +57,12 @@ static void restore_workspaces(struct sway_output *output) {
 	}
 
 	// Saved workspaces
-	for (int i = 0; i < root->saved_workspaces->length; ++i) {
-		struct sway_workspace *ws = root->saved_workspaces->items[i];
+	while (root->noop_output->workspaces->length) {
+		struct sway_workspace *ws = root->noop_output->workspaces->items[0];
+		workspace_detach(ws);
 		output_add_workspace(output, ws);
 		ipc_event_workspace(NULL, ws, "move");
 	}
-	root->saved_workspaces->length = 0;
 
 	output_sort_workspaces(output);
 }
@@ -57,7 +73,7 @@ struct sway_output *output_create(struct wlr_output *wlr_output) {
 	output->wlr_output = wlr_output;
 	wlr_output->data = output;
 
-	wl_signal_add(&wlr_output->events.destroy, &output->destroy);
+	wl_signal_init(&output->events.destroy);
 
 	wl_list_insert(&root->all_outputs, &output->link);
 
@@ -76,9 +92,14 @@ void output_enable(struct sway_output *output, struct output_config *oc) {
 	for (size_t i = 0; i < len; ++i) {
 		wl_list_init(&output->layers[i]);
 	}
-	wl_signal_init(&output->events.destroy);
 
 	output->enabled = true;
+	if (!apply_output_config(oc, output)) {
+		output->enabled = false;
+		return;
+	}
+
+	output->configured = true;
 	list_add(root->outputs, output);
 
 	output->lx = wlr_output->lx;
@@ -92,7 +113,7 @@ void output_enable(struct sway_output *output, struct output_config *oc) {
 	if (!output->workspaces->length) {
 		// Create workspace
 		char *ws_name = workspace_next_name(wlr_output->name);
-		wlr_log(WLR_DEBUG, "Creating default workspace %s", ws_name);
+		sway_log(SWAY_DEBUG, "Creating default workspace %s", ws_name);
 		ws = workspace_create(output, ws_name);
 		// Set each seat's focus if not already set
 		struct sway_seat *seat = NULL;
@@ -105,8 +126,6 @@ void output_enable(struct sway_output *output, struct output_config *oc) {
 		ipc_event_workspace(NULL, ws, "init");
 	}
 
-	apply_output_config(oc, output);
-
 	if (ws && config->default_orientation == L_NONE) {
 		// Since the output transformation and resolution could have changed
 		// due to applying the output config, the previously set layout for the
@@ -115,15 +134,6 @@ void output_enable(struct sway_output *output, struct output_config *oc) {
 	}
 
 	input_manager_configure_xcursor();
-
-	wl_signal_add(&wlr_output->events.mode, &output->mode);
-	wl_signal_add(&wlr_output->events.transform, &output->transform);
-	wl_signal_add(&wlr_output->events.scale, &output->scale);
-	wl_signal_add(&wlr_output->events.present, &output->present);
-	wl_signal_add(&output->damage->events.frame, &output->damage_frame);
-	wl_signal_add(&output->damage->events.destroy, &output->damage_destroy);
-
-	output_add_listeners(output);
 
 	wl_signal_emit(&root->events.new_node, &output->node);
 
@@ -167,6 +177,9 @@ static void output_evacuate(struct sway_output *output) {
 		if (!new_output) {
 			new_output = fallback_output;
 		}
+		if (!new_output) {
+			new_output = root->noop_output;
+		}
 
 		if (workspace_is_empty(workspace)) {
 			// If floating is not empty, there are sticky containers to move
@@ -177,14 +190,10 @@ static void output_evacuate(struct sway_output *output) {
 			continue;
 		}
 
-		if (new_output) {
-			workspace_output_add_priority(workspace, new_output);
-			output_add_workspace(new_output, workspace);
-			output_sort_workspaces(new_output);
-			ipc_event_workspace(NULL, workspace, "move");
-		} else {
-			list_add(root->saved_workspaces, workspace);
-		}
+		workspace_output_add_priority(workspace, new_output);
+		output_add_workspace(new_output, workspace);
+		output_sort_workspaces(new_output);
+		ipc_event_workspace(NULL, workspace, "move");
 	}
 }
 
@@ -218,24 +227,23 @@ void output_disable(struct sway_output *output) {
 	if (!sway_assert(output->enabled, "Expected an enabled output")) {
 		return;
 	}
-	wlr_log(WLR_DEBUG, "Disabling output '%s'", output->wlr_output->name);
+	sway_log(SWAY_DEBUG, "Disabling output '%s'", output->wlr_output->name);
 	wl_signal_emit(&output->events.destroy, output);
 
 	output_evacuate(output);
 
 	root_for_each_container(untrack_output, output);
 
+	if (output->bg_pid) {
+		terminate_swaybg(output->bg_pid);
+		output->bg_pid = 0;
+	}
+
 	int index = list_find(root->outputs, output);
 	list_del(root->outputs, index);
 
-	wl_list_remove(&output->mode.link);
-	wl_list_remove(&output->transform.link);
-	wl_list_remove(&output->scale.link);
-	wl_list_remove(&output->present.link);
-	wl_list_remove(&output->damage_destroy.link);
-	wl_list_remove(&output->damage_frame.link);
-
 	output->enabled = false;
+	output->configured = false;
 
 	arrange_root();
 }
@@ -244,13 +252,12 @@ void output_begin_destroy(struct sway_output *output) {
 	if (!sway_assert(!output->enabled, "Expected a disabled output")) {
 		return;
 	}
-	wlr_log(WLR_DEBUG, "Destroying output '%s'", output->wlr_output->name);
+	sway_log(SWAY_DEBUG, "Destroying output '%s'", output->wlr_output->name);
 
 	output->node.destroying = true;
 	node_set_dirty(&output->node);
 
 	wl_list_remove(&output->link);
-	wl_list_remove(&output->destroy.link);
 	output->wlr_output->data = NULL;
 	output->wlr_output = NULL;
 }
@@ -266,11 +273,11 @@ struct output_config *output_find_config(struct sway_output *output) {
 
 		if (strcasecmp(name, cur->name) == 0 ||
 				strcasecmp(identifier, cur->name) == 0) {
-			wlr_log(WLR_DEBUG, "Matched output config for %s", name);
+			sway_log(SWAY_DEBUG, "Matched output config for %s", name);
 			oc = cur;
 		}
 		if (strcasecmp("*", cur->name) == 0) {
-			wlr_log(WLR_DEBUG, "Matched wildcard output config for %s", name);
+			sway_log(SWAY_DEBUG, "Matched wildcard output config for %s", name);
 			all = cur;
 		}
 

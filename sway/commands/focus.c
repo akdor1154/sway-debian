@@ -1,6 +1,5 @@
 #include <strings.h>
 #include <wlr/types/wlr_output_layout.h>
-#include <wlr/util/log.h>
 #include "log.h"
 #include "sway/commands.h"
 #include "sway/input/input-manager.h"
@@ -90,19 +89,23 @@ static struct sway_node *get_node_in_output_direction(
 
 static struct sway_node *node_get_in_direction(struct sway_container *container,
 		struct sway_seat *seat, enum wlr_direction dir) {
-	if (container->is_fullscreen) {
-		// Fullscreen container with a direction - go straight to outputs
-		struct sway_output *output = container->workspace->output;
-		struct sway_output *new_output = output_get_in_direction(output, dir);
-		if (!new_output) {
-			return NULL;
-		}
-		return get_node_in_output_direction(new_output, dir);
-	}
-
 	struct sway_container *wrap_candidate = NULL;
 	struct sway_container *current = container;
 	while (current) {
+		if (current->fullscreen_mode == FULLSCREEN_WORKSPACE) {
+			// Fullscreen container with a direction - go straight to outputs
+			struct sway_output *output = current->workspace->output;
+			struct sway_output *new_output =
+				output_get_in_direction(output, dir);
+			if (!new_output) {
+				return NULL;
+			}
+			return get_node_in_output_direction(new_output, dir);
+		}
+		if (current->fullscreen_mode == FULLSCREEN_GLOBAL) {
+			return NULL;
+		}
+
 		bool can_move = false;
 		int desired;
 		int idx = container_sibling_index(current);
@@ -124,7 +127,6 @@ static struct sway_node *node_get_in_direction(struct sway_container *container,
 
 		if (can_move) {
 			if (desired < 0 || desired >= siblings->length) {
-				can_move = false;
 				int len = siblings->length;
 				if (config->focus_wrapping != WRAP_NO && !wrap_candidate
 						&& len > 1) {
@@ -179,27 +181,27 @@ static struct cmd_results *focus_mode(struct sway_workspace *ws,
 		seat_set_focus_container(seat, new_focus);
 		seat_consider_warp_to_focus(seat);
 	} else {
-		return cmd_results_new(CMD_FAILURE, "focus",
+		return cmd_results_new(CMD_FAILURE,
 				"Failed to find a %s container in workspace",
 				floating ? "floating" : "tiling");
 	}
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 static struct cmd_results *focus_output(struct sway_seat *seat,
 		int argc, char **argv) {
 	if (!argc) {
-		return cmd_results_new(CMD_INVALID, "focus",
+		return cmd_results_new(CMD_INVALID,
 			"Expected 'focus output <direction|name>'");
 	}
 	char *identifier = join_args(argv, argc);
-	struct sway_output *output = output_by_name(identifier);
+	struct sway_output *output = output_by_name_or_id(identifier);
 
 	if (!output) {
 		enum wlr_direction direction;
 		if (!parse_direction(identifier, &direction)) {
 			free(identifier);
-			return cmd_results_new(CMD_INVALID, "focus",
+			return cmd_results_new(CMD_INVALID,
 				"There is no output with that name");
 		}
 		struct sway_workspace *ws = seat_get_focused_workspace(seat);
@@ -223,21 +225,21 @@ static struct cmd_results *focus_output(struct sway_seat *seat,
 		seat_consider_warp_to_focus(seat);
 	}
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 static struct cmd_results *focus_parent(void) {
 	struct sway_seat *seat = config->handler_context.seat;
 	struct sway_container *con = config->handler_context.container;
-	if (!con || con->is_fullscreen) {
-		return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	if (!con || con->fullscreen_mode) {
+		return cmd_results_new(CMD_SUCCESS, NULL);
 	}
 	struct sway_node *parent = node_get_parent(&con->node);
 	if (parent) {
 		seat_set_focus(seat, parent);
 		seat_consider_warp_to_focus(seat);
 	}
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 static struct cmd_results *focus_child(void) {
@@ -248,15 +250,15 @@ static struct cmd_results *focus_child(void) {
 		seat_set_focus(seat, focus);
 		seat_consider_warp_to_focus(seat);
 	}
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 struct cmd_results *cmd_focus(int argc, char **argv) {
 	if (config->reading || !config->active) {
-		return cmd_results_new(CMD_DEFER, NULL, NULL);
+		return cmd_results_new(CMD_DEFER, NULL);
 	}
 	if (!root->outputs->length) {
-		return cmd_results_new(CMD_INVALID, "focus",
+		return cmd_results_new(CMD_INVALID,
 				"Can't run this command while there's no outputs connected.");
 	}
 	struct sway_node *node = config->handler_context.node;
@@ -264,14 +266,17 @@ struct cmd_results *cmd_focus(int argc, char **argv) {
 	struct sway_workspace *workspace = config->handler_context.workspace;
 	struct sway_seat *seat = config->handler_context.seat;
 	if (node->type < N_WORKSPACE) {
-		return cmd_results_new(CMD_FAILURE, "focus",
+		return cmd_results_new(CMD_FAILURE,
 			"Command 'focus' cannot be used above the workspace level");
 	}
 
 	if (argc == 0 && container) {
+		if (container_is_scratchpad_hidden(container)) {
+			root_scratchpad_show(container);
+		}
 		seat_set_focus_container(seat, container);
 		seat_consider_warp_to_focus(seat);
-		return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+		return cmd_results_new(CMD_SUCCESS, NULL);
 	}
 
 	if (strcmp(argv[0], "floating") == 0) {
@@ -297,7 +302,7 @@ struct cmd_results *cmd_focus(int argc, char **argv) {
 
 	enum wlr_direction direction = 0;
 	if (!parse_direction(argv[0], &direction)) {
-		return cmd_results_new(CMD_INVALID, "focus",
+		return cmd_results_new(CMD_INVALID,
 			"Expected 'focus <direction|parent|child|mode_toggle|floating|tiling>' "
 			"or 'focus output <direction|name>'");
 	}
@@ -307,14 +312,14 @@ struct cmd_results *cmd_focus(int argc, char **argv) {
 		struct sway_output *new_output =
 			output_get_in_direction(workspace->output, direction);
 		if (!new_output) {
-			return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+			return cmd_results_new(CMD_SUCCESS, NULL);
 		}
 
 		struct sway_node *node =
 			get_node_in_output_direction(new_output, direction);
 		seat_set_focus(seat, node);
 		seat_consider_warp_to_focus(seat);
-		return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+		return cmd_results_new(CMD_SUCCESS, NULL);
 	}
 
 	struct sway_node *next_focus =
@@ -324,5 +329,5 @@ struct cmd_results *cmd_focus(int argc, char **argv) {
 		seat_consider_warp_to_focus(seat);
 	}
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }

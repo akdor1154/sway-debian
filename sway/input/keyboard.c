@@ -1,9 +1,11 @@
 #include <assert.h>
 #include <limits.h>
+#include <strings.h>
 #include <wlr/backend/multi.h>
 #include <wlr/backend/session.h>
 #include <wlr/types/wlr_idle.h>
 #include <wlr/interfaces/wlr_keyboard.h>
+#include <xkbcommon/xkbcommon-names.h>
 #include "sway/commands.h"
 #include "sway/desktop/transaction.h"
 #include "sway/input/input-manager.h"
@@ -11,6 +13,58 @@
 #include "sway/input/seat.h"
 #include "sway/ipc-server.h"
 #include "log.h"
+
+static struct modifier_key {
+	char *name;
+	uint32_t mod;
+} modifiers[] = {
+	{ XKB_MOD_NAME_SHIFT, WLR_MODIFIER_SHIFT },
+	{ XKB_MOD_NAME_CAPS, WLR_MODIFIER_CAPS },
+	{ XKB_MOD_NAME_CTRL, WLR_MODIFIER_CTRL },
+	{ "Ctrl", WLR_MODIFIER_CTRL },
+	{ XKB_MOD_NAME_ALT, WLR_MODIFIER_ALT },
+	{ "Alt", WLR_MODIFIER_ALT },
+	{ XKB_MOD_NAME_NUM, WLR_MODIFIER_MOD2 },
+	{ "Mod3", WLR_MODIFIER_MOD3 },
+	{ XKB_MOD_NAME_LOGO, WLR_MODIFIER_LOGO },
+	{ "Mod5", WLR_MODIFIER_MOD5 },
+};
+
+uint32_t get_modifier_mask_by_name(const char *name) {
+	int i;
+	for (i = 0; i < (int)(sizeof(modifiers) / sizeof(struct modifier_key)); ++i) {
+		if (strcasecmp(modifiers[i].name, name) == 0) {
+			return modifiers[i].mod;
+		}
+	}
+
+	return 0;
+}
+
+const char *get_modifier_name_by_mask(uint32_t modifier) {
+	int i;
+	for (i = 0; i < (int)(sizeof(modifiers) / sizeof(struct modifier_key)); ++i) {
+		if (modifiers[i].mod == modifier) {
+			return modifiers[i].name;
+		}
+	}
+
+	return NULL;
+}
+
+int get_modifier_names(const char **names, uint32_t modifier_masks) {
+	int length = 0;
+	int i;
+	for (i = 0; i < (int)(sizeof(modifiers) / sizeof(struct modifier_key)); ++i) {
+		if ((modifier_masks & modifiers[i].mod) != 0) {
+			names[length] = modifiers[i].name;
+			++length;
+			modifier_masks ^= modifiers[i].mod;
+		}
+	}
+
+	return length;
+}
 
 /**
  * Remove all key ids associated to a keycode from the list of pressed keys
@@ -126,7 +180,7 @@ static void get_active_binding(const struct sway_shortcut_state *state,
 
 		if (*current_binding && *current_binding != binding &&
 				strcmp((*current_binding)->input, binding->input) == 0) {
-			wlr_log(WLR_DEBUG, "encountered duplicate bindings %d and %d",
+			sway_log(SWAY_DEBUG, "encountered duplicate bindings %d and %d",
 					(*current_binding)->order, binding->order);
 		} else if (!*current_binding ||
 				strcmp((*current_binding)->input, "*") == 0) {
@@ -213,6 +267,16 @@ static size_t keyboard_keysyms_raw(struct sway_keyboard *keyboard,
 		keycode, layout_index, 0, keysyms);
 }
 
+void sway_keyboard_disarm_key_repeat(struct sway_keyboard *keyboard) {
+	if (!keyboard) {
+		return;
+	}
+	keyboard->repeat_binding = NULL;
+	if (wl_event_source_timer_update(keyboard->key_repeat_source, 0) < 0) {
+		sway_log(SWAY_DEBUG, "failed to disarm key repeat timer");
+	}
+}
+
 static void handle_keyboard_key(struct wl_listener *listener, void *data) {
 	struct sway_keyboard *keyboard =
 		wl_container_of(listener, keyboard, keyboard_key);
@@ -295,25 +359,23 @@ static void handle_keyboard_key(struct wl_listener *listener, void *data) {
 		get_active_binding(&keyboard->state_keysyms_raw,
 				config->current_mode->keysym_bindings, &binding,
 				raw_modifiers, false, input_inhibited, device_identifier);
-
-		if (binding) {
-			seat_execute_command(seat, binding);
-			handled = true;
-		}
 	}
 
-	// Set up (or clear) keyboard repeat for a pressed binding
+	// Set up (or clear) keyboard repeat for a pressed binding. Since the
+	// binding may remove the keyboard, the timer needs to be updated first
 	if (binding && wlr_device->keyboard->repeat_info.delay > 0) {
 		keyboard->repeat_binding = binding;
 		if (wl_event_source_timer_update(keyboard->key_repeat_source,
 				wlr_device->keyboard->repeat_info.delay) < 0) {
-			wlr_log(WLR_DEBUG, "failed to set key repeat timer");
+			sway_log(SWAY_DEBUG, "failed to set key repeat timer");
 		}
 	} else if (keyboard->repeat_binding) {
-		keyboard->repeat_binding = NULL;
-		if (wl_event_source_timer_update(keyboard->key_repeat_source, 0) < 0) {
-			wlr_log(WLR_DEBUG, "failed to disarm key repeat timer");
-		}
+		sway_keyboard_disarm_key_repeat(keyboard);
+	}
+
+	if (binding) {
+		seat_execute_command(seat, binding);
+		handled = true;
 	}
 
 	// Compositor bindings
@@ -348,7 +410,7 @@ static int handle_keyboard_repeat(void *data) {
 			// We queue the next event first, as the command might cancel it
 			if (wl_event_source_timer_update(keyboard->key_repeat_source,
 					1000 / wlr_device->repeat_info.rate) < 0) {
-				wlr_log(WLR_DEBUG, "failed to update key repeat timer");
+				sway_log(SWAY_DEBUG, "failed to update key repeat timer");
 			}
 		}
 
@@ -452,7 +514,7 @@ void sway_keyboard_configure(struct sway_keyboard *keyboard) {
 		xkb_keymap_new_from_names(context, &rules, XKB_KEYMAP_COMPILE_NO_FLAGS);
 
 	if (!keymap) {
-		wlr_log(WLR_DEBUG, "cannot configure keyboard: keymap does not exist");
+		sway_log(SWAY_DEBUG, "cannot configure keyboard: keymap does not exist");
 		xkb_context_unref(context);
 		return;
 	}
@@ -516,6 +578,7 @@ void sway_keyboard_destroy(struct sway_keyboard *keyboard) {
 	}
 	wl_list_remove(&keyboard->keyboard_key.link);
 	wl_list_remove(&keyboard->keyboard_modifiers.link);
+	sway_keyboard_disarm_key_repeat(keyboard);
 	wl_event_source_remove(keyboard->key_repeat_source);
 	free(keyboard);
 }

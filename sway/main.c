@@ -3,6 +3,7 @@
 #include <pango/pangocairo.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,14 +16,12 @@
 #include "sway/commands.h"
 #include "sway/config.h"
 #include "sway/debug.h"
-#include "sway/desktop/transaction.h"
 #include "sway/server.h"
 #include "sway/swaynag.h"
 #include "sway/tree/root.h"
 #include "sway/ipc-server.h"
 #include "ipc-client.h"
 #include "log.h"
-#include "readline.h"
 #include "stringop.h"
 #include "util.h"
 
@@ -31,10 +30,16 @@ static int exit_value = 0;
 struct sway_server server = {0};
 
 void sway_terminate(int exit_code) {
-	terminate_request = true;
-	exit_value = exit_code;
-	ipc_event_shutdown("exit");
-	wl_display_terminate(server.wl_display);
+	if (!server.wl_display) {
+		// Running as IPC client
+		exit(exit_code);
+	} else {
+		// Running as server
+		terminate_request = true;
+		exit_value = exit_code;
+		ipc_event_shutdown("exit");
+		wl_display_terminate(server.wl_display);
+	}
 }
 
 void sig_handler(int signal) {
@@ -47,31 +52,28 @@ void detect_raspi(void) {
 	if (!f) {
 		return;
 	}
-	char *line;
-	while(!feof(f)) {
-		if (!(line = read_line(f))) {
-			break;
-		}
+	char *line = NULL;
+	size_t line_size = 0;
+	while (getline(&line, &line_size, f) != -1) {
 		if (strstr(line, "Raspberry Pi")) {
 			raspi = true;
+			break;
 		}
-		free(line);
 	}
 	fclose(f);
 	FILE *g = fopen("/proc/modules", "r");
 	if (!g) {
+		free(line);
 		return;
 	}
 	bool vc4 = false;
-	while (!feof(g)) {
-		if (!(line = read_line(g))) {
-			break;
-		}
+	while (getline(&line, &line_size, g) != -1) {
 		if (strstr(line, "vc4")) {
 			vc4 = true;
+			break;
 		}
-		free(line);
 	}
+	free(line);
 	fclose(g);
 	if (!vc4 && raspi) {
 		fprintf(stderr, "\x1B[1;31mWarning: You have a "
@@ -86,18 +88,15 @@ void detect_proprietary(int allow_unsupported_gpu) {
 	if (!f) {
 		return;
 	}
-	while (!feof(f)) {
-		char *line;
-		if (!(line = read_line(f))) {
-			break;
-		}
+	char *line = NULL;
+	size_t line_size = 0;
+	while (getline(&line, &line_size, f) != -1) {
 		if (strstr(line, "nvidia")) {
-			free(line);
 			if (allow_unsupported_gpu) {
-				wlr_log(WLR_ERROR,
+				sway_log(SWAY_ERROR,
 						"!!! Proprietary Nvidia drivers are in use !!!");
 			} else {
-				wlr_log(WLR_ERROR,
+				sway_log(SWAY_ERROR,
 					"Proprietary Nvidia drivers are NOT supported. "
 					"Use Nouveau. To launch sway anyway, launch with "
 					"--my-next-gpu-wont-be-nvidia and DO NOT report issues.");
@@ -106,20 +105,19 @@ void detect_proprietary(int allow_unsupported_gpu) {
 			break;
 		}
 		if (strstr(line, "fglrx")) {
-			free(line);
 			if (allow_unsupported_gpu) {
-				wlr_log(WLR_ERROR,
+				sway_log(SWAY_ERROR,
 						"!!! Proprietary AMD drivers are in use !!!");
 			} else {
-				wlr_log(WLR_ERROR, "Proprietary AMD drivers do NOT support "
+				sway_log(SWAY_ERROR, "Proprietary AMD drivers do NOT support "
 					"Wayland. Use radeon. To try anyway, launch sway with "
 					"--unsupported-gpu and DO NOT report issues.");
 				exit(EXIT_FAILURE);
 			}
 			break;
 		}
-		free(line);
 	}
+	free(line);
 	fclose(f);
 }
 
@@ -133,17 +131,27 @@ void run_as_ipc_client(char *command, char *socket_path) {
 
 static void log_env(void) {
 	const char *log_vars[] = {
+		"LD_LIBRARY_PATH",
+		"LD_PRELOAD",
 		"PATH",
-		"LD_LIBRARY_PATH",
-		"LD_PRELOAD_PATH",
-		"LD_LIBRARY_PATH",
-		"SWAY_CURSOR_THEME",
-		"SWAY_CURSOR_SIZE",
-		"SWAYSOCK"
+		"SWAYSOCK",
 	};
 	for (size_t i = 0; i < sizeof(log_vars) / sizeof(char *); ++i) {
-		wlr_log(WLR_INFO, "%s=%s", log_vars[i], getenv(log_vars[i]));
+		sway_log(SWAY_INFO, "%s=%s", log_vars[i], getenv(log_vars[i]));
 	}
+}
+
+static void log_file(FILE *f) {
+	char *line = NULL;
+	size_t line_size = 0;
+	ssize_t nread;
+	while ((nread = getline(&line, &line_size, f)) != -1) {
+		if (line[nread - 1] == '\n') {
+			line[nread - 1] = '\0';
+		}
+		sway_log(SWAY_INFO, "%s", line);
+	}
+	free(line);
 }
 
 static void log_distro(void) {
@@ -157,17 +165,8 @@ static void log_distro(void) {
 	for (size_t i = 0; i < sizeof(paths) / sizeof(char *); ++i) {
 		FILE *f = fopen(paths[i], "r");
 		if (f) {
-			wlr_log(WLR_INFO, "Contents of %s:", paths[i]);
-			while (!feof(f)) {
-				char *line;
-				if (!(line = read_line(f))) {
-					break;
-				}
-				if (*line) {
-					wlr_log(WLR_INFO, "%s", line);
-				}
-				free(line);
-			}
+			sway_log(SWAY_INFO, "Contents of %s:", paths[i]);
+			log_file(f);
 			fclose(f);
 		}
 	}
@@ -176,19 +175,10 @@ static void log_distro(void) {
 static void log_kernel(void) {
 	FILE *f = popen("uname -a", "r");
 	if (!f) {
-		wlr_log(WLR_INFO, "Unable to determine kernel version");
+		sway_log(SWAY_INFO, "Unable to determine kernel version");
 		return;
 	}
-	while (!feof(f)) {
-		char *line;
-		if (!(line = read_line(f))) {
-			break;
-		}
-		if (*line) {
-			wlr_log(WLR_INFO, "%s", line);
-		}
-		free(line);
-	}
+	log_file(f);
 	pclose(f);
 }
 
@@ -196,16 +186,16 @@ static void log_kernel(void) {
 static bool drop_permissions(void) {
 	if (getuid() != geteuid() || getgid() != getegid()) {
 		if (setgid(getgid()) != 0) {
-			wlr_log(WLR_ERROR, "Unable to drop root, refusing to start");
+			sway_log(SWAY_ERROR, "Unable to drop root, refusing to start");
 			return false;
 		}
 		if (setuid(getuid()) != 0) {
-			wlr_log(WLR_ERROR, "Unable to drop root, refusing to start");
+			sway_log(SWAY_ERROR, "Unable to drop root, refusing to start");
 			return false;
 		}
 	}
 	if (setuid(0) != -1) {
-		wlr_log(WLR_ERROR, "Unable to drop root (we shouldn't be able to "
+		sway_log(SWAY_ERROR, "Unable to drop root (we shouldn't be able to "
 			"restore it after setuid), refusing to start");
 		return false;
 	}
@@ -309,17 +299,22 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	// As the 'callback' function for wlr_log is equivalent to that for
+	// sway, we do not need to override it.
 	if (debug) {
+		sway_log_init(SWAY_DEBUG, sway_terminate);
 		wlr_log_init(WLR_DEBUG, NULL);
 	} else if (verbose || validate) {
+		sway_log_init(SWAY_INFO, sway_terminate);
 		wlr_log_init(WLR_INFO, NULL);
 	} else {
+		sway_log_init(SWAY_ERROR, sway_terminate);
 		wlr_log_init(WLR_ERROR, NULL);
 	}
 
 	if (optind < argc) { // Behave as IPC client
 		if (optind != 1) {
-			wlr_log(WLR_ERROR, "Don't use options with the IPC client");
+			sway_log(SWAY_ERROR, "Don't use options with the IPC client");
 			exit(EXIT_FAILURE);
 		}
 		if (!drop_permissions()) {
@@ -327,7 +322,7 @@ int main(int argc, char **argv) {
 		}
 		char *socket_path = getenv("SWAYSOCK");
 		if (!socket_path) {
-			wlr_log(WLR_ERROR, "Unable to retrieve socket path");
+			sway_log(SWAY_ERROR, "Unable to retrieve socket path");
 			exit(EXIT_FAILURE);
 		}
 		char *command = join_args(argv + optind, argc - optind);
@@ -355,7 +350,7 @@ int main(int argc, char **argv) {
 	// prevent ipc from crashing sway
 	signal(SIGPIPE, SIG_IGN);
 
-	wlr_log(WLR_INFO, "Starting sway version " SWAY_VERSION);
+	sway_log(SWAY_INFO, "Starting sway version " SWAY_VERSION);
 
 	root = root_create();
 
@@ -374,56 +369,33 @@ int main(int argc, char **argv) {
 	setenv("WAYLAND_DISPLAY", server.socket, true);
 	if (!load_main_config(config_path, false, false)) {
 		sway_terminate(EXIT_FAILURE);
+		goto shutdown;
 	}
 
-	if (config_path) {
-		free(config_path);
-	}
-
-	if (!terminate_request) {
-		if (!server_start_backend(&server)) {
-			sway_terminate(EXIT_FAILURE);
-		}
+	if (!server_start(&server)) {
+		sway_terminate(EXIT_FAILURE);
+		goto shutdown;
 	}
 
 	config->active = true;
 	load_swaybars();
-	// Execute commands until there are none left
-	wlr_log(WLR_DEBUG, "Running deferred commands");
-	while (config->cmd_queue->length) {
-		char *line = config->cmd_queue->items[0];
-		list_t *res_list = execute_command(line, NULL, NULL);
-		while (res_list->length) {
-			struct cmd_results *res = res_list->items[0];
-			if (res->status != CMD_SUCCESS) {
-				wlr_log(WLR_ERROR, "Error on line '%s': %s", line, res->error);
-			}
-			free_cmd_results(res);
-			list_del(res_list, 0);
-		}
-		list_free(res_list);
-		free(line);
-		list_del(config->cmd_queue, 0);
-	}
-	transaction_commit_dirty();
+	run_deferred_commands();
 
 	if (config->swaynag_config_errors.pid > 0) {
 		swaynag_show(&config->swaynag_config_errors);
 	}
 
-	if (!terminate_request) {
-		server_run(&server);
-	}
+	server_run(&server);
 
-	wlr_log(WLR_INFO, "Shutting down sway");
+shutdown:
+	sway_log(SWAY_INFO, "Shutting down sway");
 
 	server_fini(&server);
 	root_destroy(root);
 	root = NULL;
 
-	if (config) {
-		free_config(config);
-	}
+	free(config_path);
+	free_config(config);
 
 	pango_cairo_font_map_set_default(NULL);
 

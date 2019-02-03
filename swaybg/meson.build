@@ -7,13 +7,10 @@ executable(
 		client_protos,
 		gdk_pixbuf,
 		jsonc,
-		math,
 		pango,
 		pangocairo,
-		wayland_client,
-		wlroots,
+		wayland_client
 	],
 	link_with: [lib_sway_common, lib_sway_client],
-	install_rpath : rpathdir,
 	install: true
 )

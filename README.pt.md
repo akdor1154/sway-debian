@@ -1,8 +1,8 @@
 # sway
 
-"**S**irCmpwn's **Way**land compositor" é um compositor [Wayland](http://wayland.freedesktop.org/)
-compatível com o i3. Leia o [FAQ](https://github.com/swaywm/sway/wiki). Participe do
-[canal IRC](http://webchat.freenode.net/?channels=sway&uio=d4) (#sway no
+Sway é um compositor [Wayland](http://wayland.freedesktop.org/) compatível com o
+i3. Leia o [FAQ](https://github.com/swaywm/sway/wiki). Participe do [canal
+IRC](http://webchat.freenode.net/?channels=sway&uio=d4) (#sway no
 irc.freenode.net).
 
 [![](https://sr.ht/ICd5.png)](https://sr.ht/ICd5.png)
@@ -57,13 +57,10 @@ Antes de iniciar a compilação, instale as dependências:
 * pango
 * cairo
 * gdk-pixbuf2 *
-* pam **
 * [scdoc](https://git.sr.ht/~sircmpwn/scdoc) (man pages)
 * git
 
-_\*Dependência apenas de swaybar, swaybg, e swaylock_
-
-_\*\*Dependência apenas de swaylock_
+_\*Dependência apenas de swaybar, swaybg_
 
 Para compilar, execute estes comandos:
 

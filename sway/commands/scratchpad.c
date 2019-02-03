@@ -3,6 +3,7 @@
 #include "sway/config.h"
 #include "sway/input/input-manager.h"
 #include "sway/input/seat.h"
+#include "sway/ipc-server.h"
 #include "sway/tree/container.h"
 #include "sway/tree/root.h"
 #include "sway/tree/workspace.h"
@@ -23,7 +24,7 @@ static void scratchpad_toggle_auto(void) {
 	// Check if the currently focused window is a scratchpad window and should
 	// be hidden again.
 	if (focus && focus->scratchpad) {
-		wlr_log(WLR_DEBUG, "Focus is a scratchpad window - hiding %s",
+		sway_log(SWAY_DEBUG, "Focus is a scratchpad window - hiding %s",
 				focus->title);
 		root_scratchpad_hide(focus);
 		return;
@@ -34,7 +35,7 @@ static void scratchpad_toggle_auto(void) {
 	for (int i = 0; i < ws->floating->length; ++i) {
 		struct sway_container *floater = ws->floating->items[i];
 		if (floater->scratchpad && focus != floater) {
-			wlr_log(WLR_DEBUG,
+			sway_log(SWAY_DEBUG,
 					"Focusing other scratchpad window (%s) in this workspace",
 					floater->title);
 			root_scratchpad_show(floater);
@@ -47,10 +48,11 @@ static void scratchpad_toggle_auto(void) {
 	for (int i = 0; i < root->scratchpad->length; ++i) {
 		struct sway_container *con = root->scratchpad->items[i];
 		if (con->parent) {
-			wlr_log(WLR_DEBUG,
+			sway_log(SWAY_DEBUG,
 					"Moving a visible scratchpad window (%s) to this workspace",
 					con->title);
 			root_scratchpad_show(con);
+			ipc_event_window(con, "move");
 			return;
 		}
 	}
@@ -60,8 +62,9 @@ static void scratchpad_toggle_auto(void) {
 		return;
 	}
 	struct sway_container *con = root->scratchpad->items[0];
-	wlr_log(WLR_DEBUG, "Showing %s from list", con->title);
+	sway_log(SWAY_DEBUG, "Showing %s from list", con->title);
 	root_scratchpad_show(con);
+	ipc_event_window(con, "move");
 }
 
 static void scratchpad_toggle_container(struct sway_container *con) {
@@ -69,13 +72,16 @@ static void scratchpad_toggle_container(struct sway_container *con) {
 		return;
 	}
 
+	struct sway_seat *seat = input_manager_current_seat();
+	struct sway_workspace *ws = seat_get_focused_workspace(seat);
 	// Check if it matches a currently visible scratchpad window and hide it.
-	if (con->workspace) {
+	if (con->workspace && ws == con->workspace) {
 		root_scratchpad_hide(con);
 		return;
 	}
 
 	root_scratchpad_show(con);
+	ipc_event_window(con, "move");
 }
 
 struct cmd_results *cmd_scratchpad(int argc, char **argv) {
@@ -84,16 +90,14 @@ struct cmd_results *cmd_scratchpad(int argc, char **argv) {
 		return error;
 	}
 	if (strcmp(argv[0], "show") != 0) {
-		return cmd_results_new(CMD_INVALID, "scratchpad",
-				"Expected 'scratchpad show'");
+		return cmd_results_new(CMD_INVALID, "Expected 'scratchpad show'");
 	}
 	if (!root->outputs->length) {
-		return cmd_results_new(CMD_INVALID, "scratchpad",
+		return cmd_results_new(CMD_INVALID,
 				"Can't run this command while there's no outputs connected.");
 	}
 	if (!root->scratchpad->length) {
-		return cmd_results_new(CMD_INVALID, "scratchpad",
-				"Scratchpad is empty");
+		return cmd_results_new(CMD_INVALID, "Scratchpad is empty");
 	}
 
 	if (config->handler_context.using_criteria) {
@@ -111,12 +115,12 @@ struct cmd_results *cmd_scratchpad(int argc, char **argv) {
 		// matches the criteria. If this container isn't in the scratchpad,
 		// we'll just silently return a success.
 		if (!con->scratchpad) {
-			return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+			return cmd_results_new(CMD_SUCCESS, NULL);
 		}
 		scratchpad_toggle_container(con);
 	} else {
 		scratchpad_toggle_auto();
 	}
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }

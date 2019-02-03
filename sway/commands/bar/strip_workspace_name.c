@@ -11,8 +11,7 @@ struct cmd_results *bar_cmd_strip_workspace_name(int argc, char **argv) {
 		return error;
 	}
 	if (!config->current_bar) {
-		return cmd_results_new(CMD_FAILURE,
-				"strip_workspace_name", "No bar defined.");
+		return cmd_results_new(CMD_FAILURE, "No bar defined.");
 	}
 
 	config->current_bar->strip_workspace_name =
@@ -21,12 +20,12 @@ struct cmd_results *bar_cmd_strip_workspace_name(int argc, char **argv) {
 	if (config->current_bar->strip_workspace_name) {
 		config->current_bar->strip_workspace_numbers = false;
 
-		wlr_log(WLR_DEBUG, "Stripping workspace name on bar: %s",
+		sway_log(SWAY_DEBUG, "Stripping workspace name on bar: %s",
 				config->current_bar->id);
 	} else {
-		wlr_log(WLR_DEBUG, "Enabling workspace name on bar: %s",
+		sway_log(SWAY_DEBUG, "Enabling workspace name on bar: %s",
 				config->current_bar->id);
 	}
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }

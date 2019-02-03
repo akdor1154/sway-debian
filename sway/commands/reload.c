@@ -23,9 +23,8 @@ static void do_reload(void *data) {
 	}
 
 	if (!load_main_config(config->current_config_path, true, false)) {
-		wlr_log(WLR_ERROR, "Error(s) reloading config");
-		list_foreach(bar_ids, free);
-		list_free(bar_ids);
+		sway_log(SWAY_ERROR, "Error(s) reloading config");
+		list_free_items_and_destroy(bar_ids);
 		return;
 	}
 
@@ -42,9 +41,7 @@ static void do_reload(void *data) {
 			}
 		}
 	}
-
-	list_foreach(bar_ids, free);
-	list_free(bar_ids);
+	list_free_items_and_destroy(bar_ids);
 
 	config_update_font_height(true);
 	root_for_each_container(rebuild_textures_iterator, NULL);
@@ -59,13 +56,12 @@ struct cmd_results *cmd_reload(int argc, char **argv) {
 	}
 
 	if (!load_main_config(config->current_config_path, true, true)) {
-		return cmd_results_new(CMD_FAILURE, "reload",
-				"Error(s) reloading config.");
+		return cmd_results_new(CMD_FAILURE, "Error(s) reloading config.");
 	}
 
 	// The reload command frees a lot of stuff, so to avoid use-after-frees
 	// we schedule the reload to happen using an idle event.
 	wl_event_loop_add_idle(server.wl_event_loop, do_reload, NULL);
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }

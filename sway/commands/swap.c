@@ -1,6 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
 #include <strings.h>
-#include <wlr/util/log.h>
 #include "config.h"
 #include "log.h"
 #include "sway/commands.h"
@@ -11,7 +10,7 @@
 #include "sway/tree/workspace.h"
 #include "stringop.h"
 
-static const char* EXPECTED_SYNTAX =
+static const char expected_syntax[] =
 	"Expected 'swap container with id|con_id|mark <arg>'";
 
 static void swap_places(struct sway_container *con1,
@@ -78,6 +77,11 @@ static void swap_focus(struct sway_container *con1,
 	} else {
 		seat_set_focus_container(seat, focus);
 	}
+
+	if (root->fullscreen_global) {
+		seat_set_focus(seat,
+				seat_get_focus_inactive(seat, &root->fullscreen_global->node));
+	}
 }
 
 static void container_swap(struct sway_container *con1,
@@ -96,19 +100,19 @@ static void container_swap(struct sway_container *con1,
 		return;
 	}
 
-	wlr_log(WLR_DEBUG, "Swapping containers %zu and %zu",
+	sway_log(SWAY_DEBUG, "Swapping containers %zu and %zu",
 			con1->node.id, con2->node.id);
 
-	bool fs1 = con1->is_fullscreen;
-	bool fs2 = con2->is_fullscreen;
+	enum sway_fullscreen_mode fs1 = con1->fullscreen_mode;
+	enum sway_fullscreen_mode fs2 = con2->fullscreen_mode;
 	if (fs1) {
-		container_set_fullscreen(con1, false);
+		container_fullscreen_disable(con1);
 	}
 	if (fs2) {
-		container_set_fullscreen(con2, false);
+		container_fullscreen_disable(con2);
 	}
 
-	struct sway_seat *seat = input_manager_get_default_seat();
+	struct sway_seat *seat = config->handler_context.seat;
 	struct sway_container *focus = seat_get_focused_container(seat);
 	struct sway_workspace *vis1 =
 		output_get_active_workspace(con1->workspace->output);
@@ -137,10 +141,10 @@ static void container_swap(struct sway_container *con1,
 	}
 
 	if (fs1) {
-		container_set_fullscreen(con2, true);
+		container_set_fullscreen(con2, fs1);
 	}
 	if (fs2) {
-		container_set_fullscreen(con1, true);
+		container_set_fullscreen(con1, fs2);
 	}
 }
 
@@ -171,12 +175,12 @@ struct cmd_results *cmd_swap(int argc, char **argv) {
 		return error;
 	}
 	if (!root->outputs->length) {
-		return cmd_results_new(CMD_INVALID, "swap",
+		return cmd_results_new(CMD_INVALID,
 				"Can't run this command while there's no outputs connected.");
 	}
 
 	if (strcasecmp(argv[0], "container") || strcasecmp(argv[1], "with")) {
-		return cmd_results_new(CMD_INVALID, "swap", EXPECTED_SYNTAX);
+		return cmd_results_new(CMD_INVALID, expected_syntax);
 	}
 
 	struct sway_container *current = config->handler_context.container;
@@ -195,21 +199,21 @@ struct cmd_results *cmd_swap(int argc, char **argv) {
 		other = root_find_container(test_mark, value);
 	} else {
 		free(value);
-		return cmd_results_new(CMD_INVALID, "swap", EXPECTED_SYNTAX);
+		return cmd_results_new(CMD_INVALID, expected_syntax);
 	}
 
 	if (!other) {
-		error = cmd_results_new(CMD_FAILURE, "swap",
+		error = cmd_results_new(CMD_FAILURE,
 				"Failed to find %s '%s'", argv[2], value);
 	} else if (!current) {
-		error = cmd_results_new(CMD_FAILURE, "swap",
+		error = cmd_results_new(CMD_FAILURE,
 				"Can only swap with containers and views");
 	} else if (container_has_ancestor(current, other)
 			|| container_has_ancestor(other, current)) {
-		error = cmd_results_new(CMD_FAILURE, "swap",
+		error = cmd_results_new(CMD_FAILURE,
 				"Cannot swap ancestor and descendant");
 	} else if (container_is_floating(current) || container_is_floating(other)) {
-		error = cmd_results_new(CMD_FAILURE, "swap",
+		error = cmd_results_new(CMD_FAILURE,
 				"Swapping with floating containers is not supported");
 	}
 
@@ -221,10 +225,14 @@ struct cmd_results *cmd_swap(int argc, char **argv) {
 
 	container_swap(current, other);
 
-	arrange_node(node_get_parent(&current->node));
-	if (node_get_parent(&other->node) != node_get_parent(&current->node)) {
-		arrange_node(node_get_parent(&other->node));
+	if (root->fullscreen_global) {
+		arrange_root();
+	} else {
+		arrange_node(node_get_parent(&current->node));
+		if (node_get_parent(&other->node) != node_get_parent(&current->node)) {
+			arrange_node(node_get_parent(&other->node));
+		}
 	}
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }

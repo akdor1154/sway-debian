@@ -1,3 +1,4 @@
+#include <strings.h>
 #include "log.h"
 #include "sway/commands.h"
 #include "sway/config.h"
@@ -7,36 +8,55 @@
 #include "sway/tree/workspace.h"
 #include "util.h"
 
+// fullscreen [enable|disable|toggle] [global]
 struct cmd_results *cmd_fullscreen(int argc, char **argv) {
 	struct cmd_results *error = NULL;
-	if ((error = checkarg(argc, "fullscreen", EXPECTED_AT_MOST, 1))) {
+	if ((error = checkarg(argc, "fullscreen", EXPECTED_AT_MOST, 2))) {
 		return error;
 	}
 	if (!root->outputs->length) {
-		return cmd_results_new(CMD_INVALID, "fullscreen",
+		return cmd_results_new(CMD_FAILURE,
 				"Can't run this command while there's no outputs connected.");
 	}
 	struct sway_node *node = config->handler_context.node;
 	struct sway_container *container = config->handler_context.container;
 	struct sway_workspace *workspace = config->handler_context.workspace;
 	if (node->type == N_WORKSPACE && workspace->tiling->length == 0) {
-		return cmd_results_new(CMD_INVALID, "fullscreen",
+		return cmd_results_new(CMD_FAILURE,
 				"Can't fullscreen an empty workspace");
 	}
-	if (node->type == N_WORKSPACE) {
+
+	bool is_fullscreen = container &&
+		container->fullscreen_mode != FULLSCREEN_NONE;
+	bool global = false;
+	bool enable = !is_fullscreen;
+
+	if (argc >= 1) {
+		if (strcasecmp(argv[0], "global") == 0) {
+			global = true;
+		} else {
+			enable = parse_boolean(argv[0], is_fullscreen);
+		}
+	}
+
+	if (argc >= 2) {
+		global = strcasecmp(argv[1], "global") == 0;
+	}
+
+	if (enable && node->type == N_WORKSPACE) {
 		// Wrap the workspace's children in a container so we can fullscreen it
 		container = workspace_wrap_children(workspace);
 		workspace->layout = L_HORIZ;
 		seat_set_focus_container(config->handler_context.seat, container);
 	}
-	bool enable = !container->is_fullscreen;
 
-	if (argc) {
-		enable = parse_boolean(argv[0], container->is_fullscreen);
+	enum sway_fullscreen_mode mode = FULLSCREEN_NONE;
+	if (enable) {
+		mode = global ? FULLSCREEN_GLOBAL : FULLSCREEN_WORKSPACE;
 	}
 
-	container_set_fullscreen(container, enable);
-	arrange_workspace(workspace);
+	container_set_fullscreen(container, mode);
+	arrange_root();
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }

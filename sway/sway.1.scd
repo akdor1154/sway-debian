@@ -47,13 +47,13 @@ You can run sway directly from a tty, or via a Wayland-compatible login manager.
 sway searches for a config file in the following locations, in this order:
 
 . ~/.sway/config
-. $XDG\_CONFIG\_HOME/sway/config (suggested location)
+. $XDG_CONFIG_HOME/sway/config (suggested location)
 . ~/.i3/config
-. $XDG\_CONFIG\_HOME/i3/config
+. $XDG_CONFIG_HOME/i3/config
 . /etc/sway/config
 . /etc/i3/config
 
-If unset, $XDG\_CONFIG\_HOME defaults to *~/.config*.
+If unset, $XDG_CONFIG_HOME defaults to *~/.config*.
 
 An error is raised when no config file is found. The recommended default
 configuration is usually installed to */etc/sway/config*; you are encouraged to
@@ -71,18 +71,14 @@ with *i3-msg*(1) or even with *i3*(1).
 
 The following environment variables have an effect on sway:
 
-_SWAY\_CURSOR\_THEME_
-	Specifies the name of the cursor theme to use.
-
-_SWAY\_CURSOR\_SIZE_
-	Specifies the size of the cursor to use.
-
 _SWAYSOCK_
 	Specifies the path to the sway IPC socket.
 
 _XKB\_DEFAULT\_RULES_, _XKB\_DEFAULT\_MODEL_, _XKB\_DEFAULT\_LAYOUT_,
 _XKB\_DEFAULT\_VARIANT_, _XKB\_DEFAULT\_OPTIONS_
-	Configures the xkb keyboard settings. See *xkeyboard-config*(7).
+	Configures the xkb keyboard settings. See *xkeyboard-config*(7). The
+	preferred way to configure the keyboard is via the configuration file, see
+	*sway-input*(5).
 
 # AUTHORS
 

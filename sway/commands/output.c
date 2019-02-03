@@ -1,3 +1,4 @@
+#include <strings.h>
 #include "sway/commands.h"
 #include "sway/config.h"
 #include "sway/output.h"
@@ -26,9 +27,16 @@ struct cmd_results *cmd_output(int argc, char **argv) {
 		return error;
 	}
 
+	// The NOOP-1 output is a dummy output used when there's no outputs
+	// connected. It should never be configured.
+	if (strcasecmp(argv[0], root->noop_output->wlr_output->name) == 0) {
+		return cmd_results_new(CMD_FAILURE,
+				"Refusing to configure the no op output");
+	}
+
 	struct output_config *output = new_output_config(argv[0]);
 	if (!output) {
-		wlr_log(WLR_ERROR, "Failed to allocate output config");
+		sway_log(SWAY_ERROR, "Failed to allocate output config");
 		return NULL;
 	}
 	argc--; argv++;
@@ -43,7 +51,7 @@ struct cmd_results *cmd_output(int argc, char **argv) {
 			error = config_subcommand(argv, argc, output_handlers,
 					sizeof(output_handlers));
 		} else {
-			error = cmd_results_new(CMD_INVALID, "output",
+			error = cmd_results_new(CMD_INVALID,
 				"Invalid output subcommand: %s.", *argv);
 		}
 
@@ -68,7 +76,7 @@ struct cmd_results *cmd_output(int argc, char **argv) {
 		apply_output_config_to_outputs(output);
 	}
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 
 fail:
 	config->handler_context.output_config = NULL;

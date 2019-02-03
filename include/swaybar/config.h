@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <wayland-client.h>
+#include "../include/config.h"
 #include "list.h"
 #include "util.h"
 
@@ -42,6 +43,8 @@ struct swaybar_config {
 	struct wl_list outputs; // config_output::link
 	bool all_outputs;
 	int height;
+	int status_padding;
+	int status_edge_padding;
 	struct {
 		int top;
 		int right;
@@ -64,7 +67,23 @@ struct swaybar_config {
 		struct box_colors urgent_workspace;
 		struct box_colors binding_mode;
 	} colors;
+
+#if HAVE_TRAY
+	char *icon_theme;
+	struct wl_list tray_bindings; // struct tray_binding::link
+	bool tray_hidden;
+	list_t *tray_outputs; // char *
+	int tray_padding;
+#endif
 };
+
+#if HAVE_TRAY
+struct tray_binding {
+	uint32_t button;
+	char *command;
+	struct wl_list link; // struct tray_binding::link
+};
+#endif
 
 struct swaybar_config *init_config(void);
 void free_config(struct swaybar_config *config);

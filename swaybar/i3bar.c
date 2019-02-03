@@ -1,11 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
-#include <json-c/json.h>
+#include <json.h>
 #include <linux/input-event-codes.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <wlr/util/log.h>
+#include "log.h"
 #include "swaybar/bar.h"
 #include "swaybar/config.h"
 #include "swaybar/i3bar.h"
@@ -21,6 +21,7 @@ void i3bar_block_unref(struct i3bar_block *block) {
 		free(block->full_text);
 		free(block->short_text);
 		free(block->align);
+		free(block->min_width_str);
 		free(block->name);
 		free(block->instance);
 		free(block->color);
@@ -78,7 +79,7 @@ static void i3bar_parse_json(struct status_line *status,
 				block->min_width = json_object_get_int(min_width);
 			} else if (type == json_type_string) {
 				/* the width will be calculated when rendering */
-				block->min_width = 0;
+				block->min_width_str = strdup(json_object_get_string(min_width));
 			}
 		}
 		block->align = strdup(align ? json_object_get_string(align) : "left");
@@ -120,7 +121,7 @@ bool i3bar_handle_readable(struct status_line *status) {
 				memmove(status->buffer, &status->buffer[c], status->buffer_index);
 				break;
 			} else if (!isspace(status->buffer[c])) {
-				wlr_log(WLR_DEBUG, "Invalid i3bar json: expected '[' but encountered '%c'",
+				sway_log(SWAY_DEBUG, "Invalid i3bar json: expected '[' but encountered '%c'",
 						status->buffer[c]);
 				status_error(status, "[invalid i3bar json]");
 				return true;
@@ -160,7 +161,7 @@ bool i3bar_handle_readable(struct status_line *status) {
 					++buffer_pos;
 					break;
 				} else if (!isspace(status->buffer[buffer_pos])) {
-					wlr_log(WLR_DEBUG, "Invalid i3bar json: expected ',' but encountered '%c'",
+					sway_log(SWAY_DEBUG, "Invalid i3bar json: expected ',' but encountered '%c'",
 							status->buffer[buffer_pos]);
 					status_error(status, "[invalid i3bar json]");
 					return true;
@@ -195,7 +196,7 @@ bool i3bar_handle_readable(struct status_line *status) {
 				}
 				*last_char_pos = '\0';
 				size_t offset = strspn(&status->buffer[buffer_pos], " \f\n\r\t\v");
-				wlr_log(WLR_DEBUG, "Received i3bar json: '%s%c'",
+				sway_log(SWAY_DEBUG, "Received i3bar json: '%s%c'",
 						&status->buffer[buffer_pos + offset], last_char);
 				*last_char_pos = last_char;
 
@@ -229,7 +230,7 @@ bool i3bar_handle_readable(struct status_line *status) {
 			} else {
 				char last_char = status->buffer[status->buffer_index - 1];
 				status->buffer[status->buffer_index - 1] = '\0';
-				wlr_log(WLR_DEBUG, "Failed to parse i3bar json - %s: '%s%c'",
+				sway_log(SWAY_DEBUG, "Failed to parse i3bar json - %s: '%s%c'",
 						json_tokener_error_desc(err), &status->buffer[buffer_pos], last_char);
 				status_error(status, "[failed to parse i3bar json]");
 				return true;
@@ -250,7 +251,7 @@ bool i3bar_handle_readable(struct status_line *status) {
 	}
 
 	if (last_object) {
-		wlr_log(WLR_DEBUG, "Rendering last received json");
+		sway_log(SWAY_DEBUG, "Rendering last received json");
 		i3bar_parse_json(status, last_object);
 		json_object_put(last_object);
 		return true;
@@ -260,8 +261,9 @@ bool i3bar_handle_readable(struct status_line *status) {
 }
 
 enum hotspot_event_handling i3bar_block_send_click(struct status_line *status,
-		struct i3bar_block *block, int x, int y, enum x11_button button) {
-	wlr_log(WLR_DEBUG, "block %s clicked", block->name);
+		struct i3bar_block *block, int x, int y, int rx, int ry, int w, int h,
+		uint32_t button) {
+	sway_log(SWAY_DEBUG, "block %s clicked", block->name);
 	if (!block->name || !status->click_events) {
 		return HOTSPOT_PROCESS;
 	}
@@ -274,9 +276,15 @@ enum hotspot_event_handling i3bar_block_send_click(struct status_line *status,
 				json_object_new_string(block->instance));
 	}
 
-	json_object_object_add(event_json, "button", json_object_new_int(button));
+	json_object_object_add(event_json, "button",
+			json_object_new_int(event_to_x11_button(button)));
+	json_object_object_add(event_json, "event", json_object_new_int(button));
 	json_object_object_add(event_json, "x", json_object_new_int(x));
 	json_object_object_add(event_json, "y", json_object_new_int(y));
+	json_object_object_add(event_json, "relative_x", json_object_new_int(rx));
+	json_object_object_add(event_json, "relative_y", json_object_new_int(ry));
+	json_object_object_add(event_json, "width", json_object_new_int(w));
+	json_object_object_add(event_json, "height", json_object_new_int(h));
 	if (dprintf(status->write_fd, "%s%s\n", status->clicked ? "," : "",
 				json_object_to_json_string(event_json)) < 0) {
 		status_error(status, "[failed to write click event]");

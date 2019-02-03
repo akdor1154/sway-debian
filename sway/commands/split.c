@@ -13,14 +13,26 @@ static struct cmd_results *do_split(int layout) {
 	struct sway_container *con = config->handler_context.container;
 	struct sway_workspace *ws = config->handler_context.workspace;
 	if (con) {
+		if (container_is_scratchpad_hidden(con)) {
+			return cmd_results_new(CMD_FAILURE,
+					"Cannot split a hidden scratchpad container");
+		}
 		container_split(con, layout);
 	} else {
 		workspace_split(ws, layout);
 	}
 
-	arrange_workspace(ws);
+	if (con && con->parent && con->parent->parent) {
+		container_flatten(con->parent->parent);
+	}
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	if (root->fullscreen_global) {
+		arrange_root();
+	} else {
+		arrange_workspace(ws);
+	}
+
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 struct cmd_results *cmd_split(int argc, char **argv) {
@@ -29,7 +41,7 @@ struct cmd_results *cmd_split(int argc, char **argv) {
 		return error;
 	}
 	if (!root->outputs->length) {
-		return cmd_results_new(CMD_INVALID, "split",
+		return cmd_results_new(CMD_INVALID,
 				"Can't run this command while there's no outputs connected.");
 	}
 	if (strcasecmp(argv[0], "v") == 0 || strcasecmp(argv[0], "vertical") == 0) {
@@ -47,10 +59,10 @@ struct cmd_results *cmd_split(int argc, char **argv) {
 			return do_split(L_VERT);
 		}
 	} else {
-		return cmd_results_new(CMD_FAILURE, "split",
+		return cmd_results_new(CMD_FAILURE,
 			"Invalid split command (expected either horizontal or vertical).");
 	}
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
 struct cmd_results *cmd_splitv(int argc, char **argv) {

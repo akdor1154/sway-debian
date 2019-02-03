@@ -1,8 +1,7 @@
 #include <assert.h>
-#include <stdbool.h>
-#include <wlr/util/log.h>
 #include "background-image.h"
 #include "cairo.h"
+#include "log.h"
 
 enum background_mode parse_background_mode(const char *mode) {
 	if (strcmp(mode, "stretch") == 0) {
@@ -18,7 +17,7 @@ enum background_mode parse_background_mode(const char *mode) {
 	} else if (strcmp(mode, "solid_color") == 0) {
 		return BACKGROUND_MODE_SOLID_COLOR;
 	}
-	wlr_log(WLR_ERROR, "Unsupported background mode: %s", mode);
+	sway_log(SWAY_ERROR, "Unsupported background mode: %s", mode);
 	return BACKGROUND_MODE_INVALID;
 }
 
@@ -28,9 +27,9 @@ cairo_surface_t *load_background_image(const char *path) {
 	GError *err = NULL;
 	GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file(path, &err);
 	if (!pixbuf) {
-		wlr_log(WLR_ERROR, "Failed to load background image (%s).",
+		sway_log(SWAY_ERROR, "Failed to load background image (%s).",
 				err->message);
-		return false;
+		return NULL;
 	}
 	image = gdk_cairo_image_surface_create_from_pixbuf(pixbuf);
 	g_object_unref(pixbuf);
@@ -38,11 +37,11 @@ cairo_surface_t *load_background_image(const char *path) {
 	image = cairo_image_surface_create_from_png(path);
 #endif // HAVE_GDK_PIXBUF
 	if (!image) {
-		wlr_log(WLR_ERROR, "Failed to read background image.");
+		sway_log(SWAY_ERROR, "Failed to read background image.");
 		return NULL;
 	}
 	if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) {
-		wlr_log(WLR_ERROR, "Failed to read background image: %s."
+		sway_log(SWAY_ERROR, "Failed to read background image: %s."
 #if !HAVE_GDK_PIXBUF
 				"\nSway was compiled without gdk_pixbuf support, so only"
 				"\nPNG images can be loaded. This is the likely cause."

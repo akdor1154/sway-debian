@@ -31,7 +31,7 @@ struct sway_output {
 	int lx, ly;
 	int width, height;
 
-	bool enabled;
+	bool enabled, configured;
 	list_t *workspaces;
 
 	struct sway_output_state current;
@@ -84,9 +84,7 @@ void output_damage_box(struct sway_output *output, struct wlr_box *box);
 void output_damage_whole_container(struct sway_output *output,
 	struct sway_container *con);
 
-struct sway_output *output_by_name(const char *name);
-
-struct sway_output *output_by_identifier(const char *identifier);
+struct sway_output *output_by_name_or_id(const char *name_or_id);
 
 void output_sort_workspaces(struct sway_output *output);
 
@@ -146,6 +144,14 @@ void output_get_box(struct sway_output *output, struct wlr_box *box);
 enum sway_container_layout output_get_default_layout(
 		struct sway_output *output);
 
-void output_add_listeners(struct sway_output *output);
+void render_rect(struct wlr_output *wlr_output,
+		pixman_region32_t *output_damage, const struct wlr_box *_box,
+		float color[static 4]);
+
+void premultiply_alpha(float color[4], float opacity);
+
+void scale_box(struct wlr_box *box, float scale);
+
+enum wlr_direction opposite_direction(enum wlr_direction d);
 
 #endif

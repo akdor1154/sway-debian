@@ -1,6 +1,4 @@
 #define _POSIX_C_SOURCE 200809L
-#include <errno.h>
-#include <limits.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -134,7 +132,7 @@ static void copy_container_state(struct sway_container *container,
 	state->y = container->y;
 	state->width = container->width;
 	state->height = container->height;
-	state->is_fullscreen = container->is_fullscreen;
+	state->fullscreen_mode = container->fullscreen_mode;
 	state->parent = container->parent;
 	state->workspace = container->workspace;
 	state->border = container->border;
@@ -251,6 +249,26 @@ static void apply_container_state(struct sway_container *container,
 		desktop_damage_box(&box);
 	}
 
+	// If the view hasn't responded to the configure, center it within
+	// the container. This is important for fullscreen views which
+	// refuse to resize to the size of the output.
+	if (view && view->surface) {
+		if (view->surface->current.width < container->width) {
+			container->surface_x = container->content_x +
+				(container->content_width - view->surface->current.width) / 2;
+		} else {
+			container->surface_x = container->content_x;
+		}
+		if (view->surface->current.height < container->height) {
+			container->surface_y = container->content_y +
+				(container->content_height - view->surface->current.height) / 2;
+		} else {
+			container->surface_y = container->content_y;
+		}
+		container->surface_width = view->surface->current.width;
+		container->surface_height = view->surface->current.height;
+	}
+
 	if (!container->node.destroying) {
 		container_discover_outputs(container);
 	}
@@ -260,14 +278,14 @@ static void apply_container_state(struct sway_container *container,
  * Apply a transaction to the "current" state of the tree.
  */
 static void transaction_apply(struct sway_transaction *transaction) {
-	wlr_log(WLR_DEBUG, "Applying transaction %p", transaction);
+	sway_log(SWAY_DEBUG, "Applying transaction %p", transaction);
 	if (debug.txn_timings) {
 		struct timespec now;
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		struct timespec *commit = &transaction->commit_time;
 		float ms = (now.tv_sec - commit->tv_sec) * 1000 +
 			(now.tv_nsec - commit->tv_nsec) / 1000000.0;
-		wlr_log(WLR_DEBUG, "Transaction %p: %.1fms waiting "
+		sway_log(SWAY_DEBUG, "Transaction %p: %.1fms waiting "
 				"(%.1f frames if 60Hz)", transaction, ms, ms / (1000.0f / 60));
 	}
 
@@ -299,7 +317,7 @@ static void transaction_apply(struct sway_transaction *transaction) {
 	if (root->outputs->length) {
 		struct sway_seat *seat;
 		wl_list_for_each(seat, &server.input->seats, link) {
-			if (seat->operation == OP_NONE) {
+			if (!seat_doing_seatop(seat)) {
 				cursor_rebase(seat->cursor);
 			}
 		}
@@ -363,7 +381,7 @@ static void transaction_progress_queue(void) {
 
 static int handle_timeout(void *data) {
 	struct sway_transaction *transaction = data;
-	wlr_log(WLR_DEBUG, "Transaction %p timed out (%li waiting)",
+	sway_log(SWAY_DEBUG, "Transaction %p timed out (%zi waiting)",
 			transaction, transaction->num_waiting);
 	transaction->num_waiting = 0;
 	transaction_progress_queue();
@@ -398,7 +416,7 @@ static bool should_configure(struct sway_node *node,
 }
 
 static void transaction_commit(struct sway_transaction *transaction) {
-	wlr_log(WLR_DEBUG, "Transaction %p committing with %i instructions",
+	sway_log(SWAY_DEBUG, "Transaction %p committing with %i instructions",
 			transaction, transaction->instructions->length);
 	transaction->num_waiting = 0;
 	for (int i = 0; i < transaction->instructions->length; ++i) {
@@ -449,9 +467,8 @@ static void transaction_commit(struct sway_transaction *transaction) {
 			wl_event_source_timer_update(transaction->timer,
 					server.txn_timeout_ms);
 		} else {
-			wlr_log(WLR_ERROR, "Unable to create transaction timer (%s). "
-					"Some imperfect frames might be rendered.",
-					strerror(errno));
+			sway_log_errno(SWAY_ERROR, "Unable to create transaction timer "
+					"(some imperfect frames might be rendered)");
 			transaction->num_waiting = 0;
 		}
 	}
@@ -472,7 +489,7 @@ static void set_instruction_ready(
 		struct timespec *start = &transaction->commit_time;
 		float ms = (now.tv_sec - start->tv_sec) * 1000 +
 			(now.tv_nsec - start->tv_nsec) / 1000000.0;
-		wlr_log(WLR_DEBUG, "Transaction %p: %li/%li ready in %.1fms (%s)",
+		sway_log(SWAY_DEBUG, "Transaction %p: %zi/%zi ready in %.1fms (%s)",
 				transaction,
 				transaction->num_configures - transaction->num_waiting + 1,
 				transaction->num_configures, ms,
@@ -481,7 +498,7 @@ static void set_instruction_ready(
 
 	// If the transaction has timed out then its num_waiting will be 0 already.
 	if (transaction->num_waiting > 0 && --transaction->num_waiting == 0) {
-		wlr_log(WLR_DEBUG, "Transaction %p is ready", transaction);
+		sway_log(SWAY_DEBUG, "Transaction %p is ready", transaction);
 		wl_event_source_timer_update(transaction->timer, 0);
 	}
 

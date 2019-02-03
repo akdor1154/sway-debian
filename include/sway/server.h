@@ -9,6 +9,7 @@
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_presentation_time.h>
+#include <wlr/types/wlr_relative_pointer_v1.h>
 #include <wlr/types/wlr_server_decoration.h>
 #include <wlr/types/wlr_xdg_shell_v6.h>
 #include <wlr/types/wlr_xdg_shell.h>
@@ -24,6 +25,7 @@ struct sway_server {
 	const char *socket;
 
 	struct wlr_backend *backend;
+	struct wlr_backend *noop_backend;
 
 	struct wlr_compositor *compositor;
 	struct wlr_data_device_manager *data_device_manager;
@@ -50,6 +52,8 @@ struct sway_server {
 	struct wl_listener xwayland_ready;
 #endif
 
+	struct wlr_relative_pointer_manager_v1 *relative_pointer_manager;
+
 	struct wlr_server_decoration_manager *server_decoration_manager;
 	struct wl_listener server_decoration;
 	struct wl_list decorations; // sway_server_decoration::link
@@ -59,6 +63,9 @@ struct sway_server {
 	struct wl_list xdg_decorations; // sway_xdg_decoration::link
 
 	struct wlr_presentation *presentation;
+
+	struct wlr_pointer_constraints_v1 *pointer_constraints;
+	struct wl_listener pointer_constraint;
 
 	size_t txn_timeout_ms;
 	list_t *transactions;
@@ -71,7 +78,7 @@ struct sway_server server;
 bool server_privileged_prepare(struct sway_server *server);
 bool server_init(struct sway_server *server);
 void server_fini(struct sway_server *server);
-bool server_start_backend(struct sway_server *server);
+bool server_start(struct sway_server *server);
 void server_run(struct sway_server *server);
 
 void handle_new_output(struct wl_listener *listener, void *data);
@@ -85,5 +92,6 @@ void handle_xwayland_surface(struct wl_listener *listener, void *data);
 #endif
 void handle_server_decoration(struct wl_listener *listener, void *data);
 void handle_xdg_decoration(struct wl_listener *listener, void *data);
+void handle_pointer_constraint(struct wl_listener *listener, void *data);
 
 #endif

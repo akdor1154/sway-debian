@@ -49,13 +49,6 @@ static int scale_length(int length, int offset, float scale) {
 	return round((offset + length) * scale) - round(offset * scale);
 }
 
-static void scale_box(struct wlr_box *box, float scale) {
-	box->width = scale_length(box->width, box->x, scale);
-	box->height = scale_length(box->height, box->y, scale);
-	box->x = round(box->x * scale);
-	box->y = round(box->y * scale);
-}
-
 static void scissor_output(struct wlr_output *wlr_output,
 		pixman_box32_t *rect) {
 	struct wlr_renderer *renderer = wlr_backend_get_renderer(wlr_output->backend);
@@ -73,7 +66,7 @@ static void scissor_output(struct wlr_output *wlr_output,
 
 	enum wl_output_transform transform =
 		wlr_output_transform_invert(wlr_output->transform);
-	wlr_box_transform(&box, transform, ow, oh, &box);
+	wlr_box_transform(&box, &box, transform, ow, oh);
 
 	wlr_renderer_scissor(renderer, &box);
 }
@@ -164,7 +157,7 @@ static void render_drag_icons(struct sway_output *output,
 
 // _box.x and .y are expected to be layout-local
 // _box.width and .height are expected to be output-buffer-local
-static void render_rect(struct wlr_output *wlr_output,
+void render_rect(struct wlr_output *wlr_output,
 		pixman_region32_t *output_damage, const struct wlr_box *_box,
 		float color[static 4]) {
 	struct wlr_renderer *renderer =
@@ -197,7 +190,7 @@ damage_finish:
 	pixman_region32_fini(&damage);
 }
 
-static void premultiply_alpha(float color[4], float opacity) {
+void premultiply_alpha(float color[4], float opacity) {
 	color[3] *= opacity;
 	color[0] *= color[3];
 	color[1] *= color[3];
@@ -211,9 +204,9 @@ static void render_view_toplevels(struct sway_view *view,
 		.alpha = alpha,
 	};
 	// Render all toplevels without descending into popups
-	double ox = view->container->current.content_x -
+	double ox = view->container->surface_x -
 		output->wlr_output->lx - view->geometry.x;
-	double oy = view->container->current.content_y -
+	double oy = view->container->surface_y -
 		output->wlr_output->ly - view->geometry.y;
 	output_surface_for_each_surface(output, view->surface, ox, oy,
 			render_surface_iterator, &data);
@@ -247,9 +240,9 @@ static void render_saved_view(struct sway_view *view,
 		return;
 	}
 	struct wlr_box box = {
-		.x = view->container->current.content_x - output->wlr_output->lx -
+		.x = view->container->surface_x - output->wlr_output->lx -
 			view->saved_geometry.x,
-		.y = view->container->current.content_y - output->wlr_output->ly -
+		.y = view->container->surface_y - output->wlr_output->ly -
 			view->saved_geometry.y,
 		.width = view->saved_buffer_width,
 		.height = view->saved_buffer_height,
@@ -261,7 +254,7 @@ static void render_saved_view(struct sway_view *view,
 	};
 
 	struct wlr_box intersection;
-	bool intersects = wlr_box_intersection(&output_box, &box, &intersection);
+	bool intersects = wlr_box_intersection(&intersection, &output_box, &box);
 	if (!intersects) {
 		return;
 	}
@@ -949,21 +942,11 @@ static void render_floating(struct sway_output *soutput,
 	}
 }
 
-static void render_dropzones(struct sway_output *output,
+static void render_seatops(struct sway_output *output,
 		pixman_region32_t *damage) {
 	struct sway_seat *seat;
 	wl_list_for_each(seat, &server.input->seats, link) {
-		if (seat->operation == OP_MOVE_TILING && seat->op_target_node
-				&& node_get_output(seat->op_target_node) == output) {
-			float color[4];
-			memcpy(&color, config->border_colors.focused.indicator,
-					sizeof(float) * 4);
-			premultiply_alpha(color, 0.5);
-			struct wlr_box box;
-			memcpy(&box, &seat->op_drop_box, sizeof(struct wlr_box));
-			scale_box(&box, output->wlr_output->scale);
-			render_rect(output->wlr_output, damage, &box, color);
-		}
+		seatop_render(seat, output, damage);
 	}
 }
 
@@ -1002,7 +985,14 @@ void output_render(struct sway_output *output, struct timespec *when,
 		goto render_overlay;
 	}
 
-	struct sway_container *fullscreen_con = workspace->current.fullscreen;
+	struct sway_container *fullscreen_con = root->fullscreen_global;
+	if (fullscreen_con && container_is_scratchpad_hidden(fullscreen_con)) {
+		fullscreen_con = NULL;
+	}
+	if (!fullscreen_con) {
+		fullscreen_con = workspace->current.fullscreen;
+	}
+
 	if (fullscreen_con) {
 		float clear_color[] = {0.0f, 0.0f, 0.0f, 1.0f};
 
@@ -1013,11 +1003,10 @@ void output_render(struct sway_output *output, struct timespec *when,
 			wlr_renderer_clear(renderer, clear_color);
 		}
 
-		// TODO: handle views smaller than the output
 		if (fullscreen_con->view) {
 			if (fullscreen_con->view->saved_buffer) {
 				render_saved_view(fullscreen_con->view, output, damage, 1.0f);
-			} else {
+			} else if (fullscreen_con->view->surface) {
 				render_view_toplevels(fullscreen_con->view,
 						output, damage, 1.0f);
 			}
@@ -1060,7 +1049,7 @@ void output_render(struct sway_output *output, struct timespec *when,
 			&output->layers[ZWLR_LAYER_SHELL_V1_LAYER_TOP]);
 	}
 
-	render_dropzones(output, damage);
+	render_seatops(output, damage);
 
 	struct sway_seat *seat = input_manager_current_seat();
 	struct sway_container *focus = seat_get_focused_container(seat);
@@ -1079,15 +1068,22 @@ renderer_end:
 		wlr_render_texture(renderer, root->debug_tree,
 			wlr_output->transform_matrix, 0, 40, 1);
 	}
-	if (debug.damage == DAMAGE_HIGHLIGHT) {
-		int width, height;
-		wlr_output_transformed_resolution(wlr_output, &width, &height);
-		pixman_region32_union_rect(damage, damage, 0, 0, width, height);
-	}
 
 	wlr_renderer_scissor(renderer, NULL);
 	wlr_output_render_software_cursors(wlr_output, damage);
 	wlr_renderer_end(renderer);
+
+	int width, height;
+	wlr_output_transformed_resolution(wlr_output, &width, &height);
+
+	if (debug.damage == DAMAGE_HIGHLIGHT) {
+		pixman_region32_union_rect(damage, damage, 0, 0, width, height);
+	}
+
+	enum wl_output_transform transform =
+		wlr_output_transform_invert(wlr_output->transform);
+	wlr_region_transform(damage, damage, transform, width, height);
+
 	if (!wlr_output_damage_swap_buffers(output->damage, when, damage)) {
 		return;
 	}

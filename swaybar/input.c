@@ -1,13 +1,8 @@
 #include <assert.h>
-#ifdef __FreeBSD__
-#include <dev/evdev/input-event-codes.h>
-#else
 #include <linux/input-event-codes.h>
-#endif
 #include <stdlib.h>
 #include <wayland-client.h>
 #include <wayland-cursor.h>
-#include <wlr/util/log.h>
 #include "list.h"
 #include "log.h"
 #include "swaybar/bar.h"
@@ -26,33 +21,64 @@ void free_hotspots(struct wl_list *list) {
 	}
 }
 
-static enum x11_button wl_button_to_x11_button(uint32_t button) {
-	switch (button) {
+uint32_t event_to_x11_button(uint32_t event) {
+	switch (event) {
 	case BTN_LEFT:
-		return LEFT;
+		return 1;
 	case BTN_MIDDLE:
-		return MIDDLE;
+		return 2;
 	case BTN_RIGHT:
-		return RIGHT;
+		return 3;
+	case SWAY_SCROLL_UP:
+		return 4;
+	case SWAY_SCROLL_DOWN:
+		return 5;
+	case SWAY_SCROLL_LEFT:
+		return 6;
+	case SWAY_SCROLL_RIGHT:
+		return 7;
 	case BTN_SIDE:
-		return BACK;
+		return 8;
 	case BTN_EXTRA:
-		return FORWARD;
+		return 9;
 	default:
-		return NONE;
+		return 0;
 	}
 }
 
-static enum x11_button wl_axis_to_x11_button(uint32_t axis, wl_fixed_t value) {
+static uint32_t wl_axis_to_button(uint32_t axis, wl_fixed_t value) {
+	bool negative = wl_fixed_to_double(value) < 0;
 	switch (axis) {
 	case WL_POINTER_AXIS_VERTICAL_SCROLL:
-		return wl_fixed_to_double(value) < 0 ? SCROLL_UP : SCROLL_DOWN;
+		return negative ? SWAY_SCROLL_UP : SWAY_SCROLL_DOWN;
 	case WL_POINTER_AXIS_HORIZONTAL_SCROLL:
-		return wl_fixed_to_double(value) < 0 ? SCROLL_LEFT : SCROLL_RIGHT;
+		return negative ? SWAY_SCROLL_LEFT : SWAY_SCROLL_RIGHT;
 	default:
-		wlr_log(WLR_DEBUG, "Unexpected axis value on mouse scroll");
-		return NONE;
+		sway_log(SWAY_DEBUG, "Unexpected axis value on mouse scroll");
+		return 0;
 	}
+}
+
+void update_cursor(struct swaybar *bar) {
+	struct swaybar_pointer *pointer = &bar->pointer;
+	if (pointer->cursor_theme) {
+		wl_cursor_theme_destroy(pointer->cursor_theme);
+	}
+	int scale = pointer->current ? pointer->current->scale : 1;
+	pointer->cursor_theme = wl_cursor_theme_load(NULL, 24 * scale, bar->shm);
+	struct wl_cursor *cursor;
+	cursor = wl_cursor_theme_get_cursor(pointer->cursor_theme, "left_ptr");
+	pointer->cursor_image = cursor->images[0];
+	wl_surface_set_buffer_scale(pointer->cursor_surface, scale);
+	wl_surface_attach(pointer->cursor_surface,
+			wl_cursor_image_get_buffer(pointer->cursor_image), 0, 0);
+	wl_pointer_set_cursor(pointer->pointer, pointer->serial,
+			pointer->cursor_surface,
+			pointer->cursor_image->hotspot_x / scale,
+			pointer->cursor_image->hotspot_y / scale);
+	wl_surface_damage_buffer(pointer->cursor_surface, 0, 0,
+			INT32_MAX, INT32_MAX);
+	wl_surface_commit(pointer->cursor_surface);
 }
 
 static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
@@ -60,6 +86,7 @@ static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
 		wl_fixed_t surface_x, wl_fixed_t surface_y) {
 	struct swaybar *bar = data;
 	struct swaybar_pointer *pointer = &bar->pointer;
+	pointer->serial = serial;
 	struct swaybar_output *output;
 	wl_list_for_each(output, &bar->outputs, link) {
 		if (output->surface == surface) {
@@ -67,20 +94,7 @@ static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
 			break;
 		}
 	}
-	int max_scale = 1;
-	struct swaybar_output *_output;
-	wl_list_for_each(_output, &bar->outputs, link) {
-		if (_output->scale > max_scale) {
-			max_scale = _output->scale;
-		}
-	}
-	wl_surface_set_buffer_scale(pointer->cursor_surface, max_scale);
-	wl_surface_attach(pointer->cursor_surface,
-			wl_cursor_image_get_buffer(pointer->cursor_image), 0, 0);
-	wl_pointer_set_cursor(wl_pointer, serial, pointer->cursor_surface,
-			pointer->cursor_image->hotspot_x / max_scale,
-			pointer->cursor_image->hotspot_y / max_scale);
-	wl_surface_commit(pointer->cursor_surface);
+	update_cursor(bar);
 }
 
 static void wl_pointer_leave(void *data, struct wl_pointer *wl_pointer,
@@ -96,12 +110,12 @@ static void wl_pointer_motion(void *data, struct wl_pointer *wl_pointer,
 	bar->pointer.y = wl_fixed_to_int(surface_y);
 }
 
-static bool check_bindings(struct swaybar *bar, uint32_t x11_button,
+static bool check_bindings(struct swaybar *bar, uint32_t button,
 		uint32_t state) {
 	bool released = state == WL_POINTER_BUTTON_STATE_RELEASED;
 	for (int i = 0; i < bar->config->bindings->length; i++) {
 		struct swaybar_binding *binding = bar->config->bindings->items[i];
-		if (binding->button == x11_button && binding->release == released) {
+		if (binding->button == button && binding->release == released) {
 			ipc_execute_binding(bar, binding);
 			return true;
 		}
@@ -118,7 +132,7 @@ static void wl_pointer_button(void *data, struct wl_pointer *wl_pointer,
 		return;
 	}
 
-	if (check_bindings(bar, wl_button_to_x11_button(button), state)) {
+	if (check_bindings(bar, button, state)) {
 		return;
 	}
 
@@ -133,8 +147,8 @@ static void wl_pointer_button(void *data, struct wl_pointer *wl_pointer,
 				&& y >= hotspot->y
 				&& x < hotspot->x + hotspot->width
 				&& y < hotspot->y + hotspot->height) {
-			if (HOTSPOT_IGNORE == hotspot->callback(output, pointer->x, pointer->y,
-					wl_button_to_x11_button(button), hotspot->data)) {
+			if (HOTSPOT_IGNORE == hotspot->callback(output, hotspot,
+					pointer->x, pointer->y, button, hotspot->data)) {
 				return;
 			}
 		}
@@ -152,7 +166,7 @@ static void wl_pointer_axis(void *data, struct wl_pointer *wl_pointer,
 
 	// If there is a button press binding, execute it, skip default behavior,
 	// and check button release bindings
-	enum x11_button button = wl_axis_to_x11_button(axis, value);
+	uint32_t button = wl_axis_to_button(axis, value);
 	if (check_bindings(bar, button, WL_POINTER_BUTTON_STATE_PRESSED)) {
 		check_bindings(bar, button, WL_POINTER_BUTTON_STATE_RELEASED);
 		return;
@@ -166,8 +180,8 @@ static void wl_pointer_axis(void *data, struct wl_pointer *wl_pointer,
 				&& y >= hotspot->y
 				&& x < hotspot->x + hotspot->width
 				&& y < hotspot->y + hotspot->height) {
-			if (HOTSPOT_IGNORE == hotspot->callback(
-					output, pointer->x, pointer->y, button, hotspot->data)) {
+			if (HOTSPOT_IGNORE == hotspot->callback(output, hotspot,
+					pointer->x, pointer->y, button, hotspot->data)) {
 				return;
 			}
 		}

@@ -15,11 +15,11 @@ struct cmd_results *cmd_swaynag_command(int argc, char **argv) {
 	char *new_command = join_args(argv, argc);
 	if (strcmp(new_command, "-") != 0) {
 		config->swaynag_command = new_command;
-		wlr_log(WLR_DEBUG, "Using custom swaynag command: %s",
+		sway_log(SWAY_DEBUG, "Using custom swaynag command: %s",
 				config->swaynag_command);
 	} else {
 		free(new_command);
 	}
 
-	return cmd_results_new(CMD_SUCCESS, NULL, NULL);
+	return cmd_results_new(CMD_SUCCESS, NULL);
 }

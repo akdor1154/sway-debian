@@ -1,5 +1,7 @@
-#define _POSIX_C_SOURCE 200809
+#define _POSIX_C_SOURCE 200809L
 #include <libgen.h>
+#include <stdio.h>
+#include <string.h>
 #include <strings.h>
 #include <unistd.h>
 #include <wordexp.h>
@@ -20,22 +22,21 @@ static const char *bg_options[] = {
 
 struct cmd_results *output_cmd_background(int argc, char **argv) {
 	if (!config->handler_context.output_config) {
-		return cmd_results_new(CMD_FAILURE, "output", "Missing output config");
+		return cmd_results_new(CMD_FAILURE, "Missing output config");
 	}
 	if (!argc) {
-		return cmd_results_new(CMD_INVALID, "output",
+		return cmd_results_new(CMD_INVALID,
 			"Missing background file or color specification.");
 	}
 	if (argc < 2) {
-		return cmd_results_new(CMD_INVALID, "output",
+		return cmd_results_new(CMD_INVALID,
 			"Missing background scaling mode or `solid_color`.");
 	}
 
 	struct output_config *output = config->handler_context.output_config;
 
 	if (strcasecmp(argv[1], "solid_color") == 0) {
-		output->background = calloc(1, strlen(argv[0]) + 3);
-		snprintf(output->background, strlen(argv[0]) + 3, "\"%s\"", argv[0]);
+		output->background = strdup(argv[0]);
 		output->background_option = strdup("solid_color");
 		output->background_fallback = NULL;
 		argc -= 2; argv += 2;
@@ -57,7 +58,7 @@ struct cmd_results *output_cmd_background(int argc, char **argv) {
 			}
 		}
 		if (!valid) {
-			return cmd_results_new(CMD_INVALID, "output",
+			return cmd_results_new(CMD_INVALID,
 				"Missing background scaling mode.");
 		}
 
@@ -70,7 +71,7 @@ struct cmd_results *output_cmd_background(int argc, char **argv) {
 			*ptr = '\\';
 		}
 		if (wordexp(src, &p, 0) != 0 || p.we_wordv[0] == NULL) {
-			struct cmd_results *cmd_res = cmd_results_new(CMD_INVALID, "output",
+			struct cmd_results *cmd_res = cmd_results_new(CMD_INVALID,
 				"Invalid syntax (%s)", src);
 			free(src);
 			wordfree(&p);
@@ -80,9 +81,8 @@ struct cmd_results *output_cmd_background(int argc, char **argv) {
 		src = join_args(p.we_wordv, p.we_wordc);
 		wordfree(&p);
 		if (!src) {
-			wlr_log(WLR_ERROR, "Failed to duplicate string");
-			return cmd_results_new(CMD_FAILURE, "output",
-				"Unable to allocate resource");
+			sway_log(SWAY_ERROR, "Failed to duplicate string");
+			return cmd_results_new(CMD_FAILURE, "Unable to allocate resource");
 		}
 
 		if (config->reading && *src != '/') {
@@ -90,9 +90,9 @@ struct cmd_results *output_cmd_background(int argc, char **argv) {
 
 			char *conf = strdup(config->current_config_path);
 			if (!conf) {
-				wlr_log(WLR_ERROR, "Failed to duplicate string");
+				sway_log(SWAY_ERROR, "Failed to duplicate string");
 				free(src);
-				return cmd_results_new(CMD_FAILURE, "output",
+				return cmd_results_new(CMD_FAILURE,
 						"Unable to allocate resources");
 			}
 
@@ -102,8 +102,8 @@ struct cmd_results *output_cmd_background(int argc, char **argv) {
 			if (!src) {
 				free(rel_path);
 				free(conf);
-				wlr_log(WLR_ERROR, "Unable to allocate memory");
-				return cmd_results_new(CMD_FAILURE, "output",
+				sway_log(SWAY_ERROR, "Unable to allocate memory");
+				return cmd_results_new(CMD_FAILURE,
 						"Unable to allocate resources");
 			}
 
@@ -114,22 +114,12 @@ struct cmd_results *output_cmd_background(int argc, char **argv) {
 
 		bool can_access = access(src, F_OK) != -1;
 		if (!can_access) {
-			wlr_log(WLR_ERROR, "Unable to access background file '%s': %s",
-					src, strerror(errno));
+			sway_log_errno(SWAY_ERROR, "Unable to access background file '%s'",
+					src);
 			config_add_swaynag_warning("Unable to access background file '%s'",
 					src);
 			free(src);
 		} else {
-			// Escape double quotes in the final path for swaybg
-			for (size_t i = 0; i < strlen(src); i++) {
-				if (src[i] == '"') {
-					src = realloc(src, strlen(src) + 2);
-					memmove(src + i + 1, src + i, strlen(src + i) + 1);
-					*(src + i) = '\\';
-					i++;
-				}
-			}
-
 			output->background = src;
 			output->background_option = strdup(mode);
 		}
@@ -137,9 +127,7 @@ struct cmd_results *output_cmd_background(int argc, char **argv) {
 
 		output->background_fallback = NULL;
 		if (argc && *argv[0] == '#') {
-			output->background_fallback = calloc(1, strlen(argv[0]) + 3);
-			snprintf(output->background_fallback, strlen(argv[0]) + 3,
-					"\"%s\"", argv[0]);
+			output->background_fallback = strdup(argv[0]);
 			argc--; argv++;
 
 			if (!can_access) {
@@ -154,4 +142,3 @@ struct cmd_results *output_cmd_background(int argc, char **argv) {
 	config->handler_context.leftovers.argv = argv;
 	return NULL;
 }
-

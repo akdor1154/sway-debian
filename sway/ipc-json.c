@@ -1,6 +1,8 @@
-#include <json-c/json.h>
+#include <json.h>
+#include <libevdev/libevdev.h>
 #include <stdio.h>
 #include <ctype.h>
+#include "config.h"
 #include "log.h"
 #include "sway/config.h"
 #include "sway/ipc-json.h"
@@ -9,7 +11,9 @@
 #include "sway/tree/workspace.h"
 #include "sway/output.h"
 #include "sway/input/input-manager.h"
+#include "sway/input/cursor.h"
 #include "sway/input/seat.h"
+#include <wlr/backend/libinput.h>
 #include <wlr/types/wlr_box.h>
 #include <wlr/types/wlr_output.h>
 #include <xkbcommon/xkbcommon.h>
@@ -93,6 +97,8 @@ static const char *ipc_json_device_type_description(struct sway_input_device *de
 		return "tablet_tool";
 	case WLR_INPUT_DEVICE_TABLET_PAD:
 		return "tablet_pad";
+	case WLR_INPUT_DEVICE_SWITCH:
+		return "switch";
 	}
 	return "unknown";
 }
@@ -276,7 +282,7 @@ static json_object *ipc_json_describe_scratchpad_output(void) {
 	json_object *floating_array = json_object_new_array();
 	for (int i = 0; i < root->scratchpad->length; ++i) {
 		struct sway_container *container = root->scratchpad->items[i];
-		if (!container->workspace) {
+		if (container_is_scratchpad_hidden(container)) {
 			json_object_array_add(floating_array,
 				ipc_json_describe_node_recursive(&container->node));
 		}
@@ -419,6 +425,9 @@ static void ipc_json_describe_container(struct sway_container *c, json_object *o
 		view_is_urgent(c->view) : container_has_urgent_child(c);
 	json_object_object_add(object, "urgent", json_object_new_boolean(urgent));
 	json_object_object_add(object, "sticky", json_object_new_boolean(c->is_sticky));
+
+	json_object_object_add(object, "fullscreen_mode",
+			json_object_new_int(c->fullscreen_mode));
 
 	struct sway_node *parent = node_get_parent(&c->node);
 	struct wlr_box parent_box = {0, 0, 0, 0};
@@ -594,6 +603,26 @@ json_object *ipc_json_describe_input(struct sway_input_device *device) {
 		}
 	}
 
+	if (wlr_input_device_is_libinput(device->wlr_device)) {
+		struct libinput_device *libinput_dev;
+		libinput_dev = wlr_libinput_get_device_handle(device->wlr_device);
+
+		const char *events = "unknown";
+		switch (libinput_device_config_send_events_get_mode(libinput_dev)) {
+		case LIBINPUT_CONFIG_SEND_EVENTS_ENABLED:
+			events = "enabled";
+			break;
+		case LIBINPUT_CONFIG_SEND_EVENTS_DISABLED_ON_EXTERNAL_MOUSE:
+			events = "disabled_on_external_mouse";
+			break;
+		case LIBINPUT_CONFIG_SEND_EVENTS_DISABLED:
+			events = "disabled";
+			break;
+		}
+		json_object_object_add(object, "libinput_send_events",
+				json_object_new_string(events));
+	}
+
 	return object;
 }
 
@@ -620,6 +649,31 @@ json_object *ipc_json_describe_seat(struct sway_seat *seat) {
 	json_object_object_add(object, "devices", devices);
 
 	return object;
+}
+
+static uint32_t event_to_x11_button(uint32_t event) {
+	switch (event) {
+	case BTN_LEFT:
+		return 1;
+	case BTN_MIDDLE:
+		return 2;
+	case BTN_RIGHT:
+		return 3;
+	case SWAY_SCROLL_UP:
+		return 4;
+	case SWAY_SCROLL_DOWN:
+		return 5;
+	case SWAY_SCROLL_LEFT:
+		return 6;
+	case SWAY_SCROLL_RIGHT:
+		return 7;
+	case BTN_SIDE:
+		return 8;
+	case BTN_EXTRA:
+		return 9;
+	default:
+		return 0;
+	}
 }
 
 json_object *ipc_json_describe_bar_config(struct bar_config *bar) {
@@ -656,6 +710,10 @@ json_object *ipc_json_describe_bar_config(struct bar_config *bar) {
 	}
 	json_object_object_add(json, "bar_height",
 			json_object_new_int(bar->height));
+	json_object_object_add(json, "status_padding",
+			json_object_new_int(bar->status_padding));
+	json_object_object_add(json, "status_edge_padding",
+			json_object_new_int(bar->status_edge_padding));
 	json_object_object_add(json, "wrap_scroll",
 			json_object_new_boolean(bar->wrap_scroll));
 	json_object_object_add(json, "workspace_buttons",
@@ -763,6 +821,8 @@ json_object *ipc_json_describe_bar_config(struct bar_config *bar) {
 			struct bar_binding *binding = bar->bindings->items[i];
 			json_object *bind = json_object_new_object();
 			json_object_object_add(bind, "input_code",
+					json_object_new_int(event_to_x11_button(binding->button)));
+			json_object_object_add(bind, "event_code",
 					json_object_new_int(binding->button));
 			json_object_object_add(bind, "command",
 					json_object_new_string(binding->command));
@@ -782,5 +842,42 @@ json_object *ipc_json_describe_bar_config(struct bar_config *bar) {
 		}
 		json_object_object_add(json, "outputs", outputs);
 	}
+#if HAVE_TRAY
+	// Add tray outputs if defined
+	if (bar->tray_outputs && bar->tray_outputs->length > 0) {
+		json_object *tray_outputs = json_object_new_array();
+		for (int i = 0; i < bar->tray_outputs->length; ++i) {
+			const char *name = bar->tray_outputs->items[i];
+			json_object_array_add(tray_outputs, json_object_new_string(name));
+		}
+		json_object_object_add(json, "tray_outputs", tray_outputs);
+	}
+
+	json_object *tray_bindings = json_object_new_array();
+	struct tray_binding *tray_bind = NULL;
+	wl_list_for_each(tray_bind, &bar->tray_bindings, link) {
+		json_object *bind = json_object_new_object();
+		json_object_object_add(bind, "input_code",
+				json_object_new_int(event_to_x11_button(tray_bind->button)));
+		json_object_object_add(bind, "event_code",
+				json_object_new_int(tray_bind->button));
+		json_object_object_add(bind, "command",
+				json_object_new_string(tray_bind->command));
+		json_object_array_add(tray_bindings, bind);
+	}
+	if (json_object_array_length(tray_bindings) > 0) {
+		json_object_object_add(json, "tray_bindings", tray_bindings);
+	} else {
+		json_object_put(tray_bindings);
+	}
+
+	if (bar->icon_theme) {
+		json_object_object_add(json, "icon_theme",
+				json_object_new_string(bar->icon_theme));
+	}
+
+	json_object_object_add(json, "tray_padding",
+			json_object_new_int(bar->tray_padding));
+#endif
 	return json;
 }
