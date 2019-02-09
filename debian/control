@@ -34,8 +34,8 @@ Architecture: any
 Depends:
  ${shlibs:Depends},
  ${misc:Depends}
-Recommends: swaylock, sway-backgrounds
-#Suggests: swaygrab
+Recommends: sway-backgrounds
+Suggests: swayidle, swaylock
 Description: i3-compatible Wayland compositor
  sway (SirCmpwn's Wayland compositor) is a tiling Wayland compositor and a
  drop-in replacement for the i3 window manager for X11. It works with your
