@@ -6,6 +6,7 @@ usr/bin/swaymsg
 usr/bin/swaynag
 usr/share/bash-completion/completions/sway
 usr/share/bash-completion/completions/swaymsg
+usr/share/bash-completion/completions/swaybar
 usr/share/fish/completions/sway.fish
 usr/share/fish/completions/swaymsg.fish
 usr/share/fish/completions/swaynag.fish
