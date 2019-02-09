@@ -7,8 +7,9 @@ sway (1.0~rc1-1) experimental; urgency=medium
     and libsystemd build-dep
   * Remove references to swaygrab
   * Update Recommends and Suggests
+  * Make versioned run dependency on libwlroots0 explicit
 
- -- Birger Schacht <birger@rantanplan.org>  Sat, 09 Feb 2019 12:35:08 +0100
+ -- Birger Schacht <birger@rantanplan.org>  Sat, 09 Feb 2019 13:03:31 +0100
 
 sway (1.0~beta.2-3) experimental; urgency=medium
 
