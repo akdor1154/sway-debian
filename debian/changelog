@@ -1,8 +1,14 @@
-sway (1.0~rc1-1) UNRELEASED; urgency=medium
+sway (1.0~rc1-1) experimental; urgency=medium
 
   * New upstream release
+  * Remove swaylock and swayidle: they are now separate packages
+  * Clean up d/sway.install
+  * Specify versioned build-dependencies and add libelogind
+    and libsystemd build-dep
+  * Remove references to swaygrab
+  * Update Recommends and Suggests
 
- -- Birger Schacht <birger@rantanplan.org>  Sun, 03 Feb 2019 15:33:21 +0100
+ -- Birger Schacht <birger@rantanplan.org>  Sat, 09 Feb 2019 12:35:08 +0100
 
 sway (1.0~beta.2-3) experimental; urgency=medium
 
