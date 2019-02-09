@@ -2,11 +2,20 @@ sway (1.0~rc1-1) experimental; urgency=medium
 
   * New upstream release
   * Remove swaylock and swayidle: they are now separate packages
-  * Clean up d/sway.install
-  * Specify versioned build-dependencies and add libelogind
-    and libsystemd build-dep
-  * Remove references to swaygrab
-  * Update Recommends and Suggests
+  * Tidied up d/sway.install: now that swaylock and swayidle
+    are seperate source packages, its easier to use wildcards
+  * Specify versioned build-dependencies as required by upstream.
+    Thus explicitly listing wayland-protocols and libsystemd as
+    build-dep with versions and adding versions to scdoc build-dep.
+  * Adding libelogind build-dep
+  * Bump version of libwlroots-dev build-dep
+  * Remove references to swaygrab (it was removed from the upstream
+    package; see grim(1) for an alternative)
+  * Update Recommends and Suggests: one of the sway wallpapers is
+    configured as background in the shipped config file, thus the
+    package containing the wallpapers is recommended. swayidle and
+    swaylock are also configured in the shipped config file, but
+    commented, thus they are only suggested
   * Make versioned run dependency on libwlroots0 explicit
 
  -- Birger Schacht <birger@rantanplan.org>  Sat, 09 Feb 2019 13:03:31 +0100
