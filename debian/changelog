@@ -3,7 +3,7 @@ sway (1.0~rc1-1) experimental; urgency=medium
   * New upstream release
   * Remove swaylock and swayidle: they are now separate packages
   * Tidied up d/sway.install: now that swaylock and swayidle
-    are seperate source packages, its easier to use wildcards
+    are separate source packages, its easier to use wildcards
   * Specify versioned build-dependencies as required by upstream.
     Thus explicitly listing wayland-protocols and libsystemd as
     build-dep with versions and adding versions to scdoc build-dep.
@@ -18,7 +18,7 @@ sway (1.0~rc1-1) experimental; urgency=medium
     commented, thus they are only suggested
   * Make versioned run dependency on libwlroots0 explicit
 
- -- Birger Schacht <birger@rantanplan.org>  Sat, 09 Feb 2019 13:03:31 +0100
+ -- Birger Schacht <birger@rantanplan.org>  Sun, 10 Feb 2019 09:48:12 +0100
 
 sway (1.0~beta.2-3) experimental; urgency=medium
 
