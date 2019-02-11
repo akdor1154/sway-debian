@@ -118,7 +118,7 @@ void free_config(struct sway_config *config) {
 	}
 	list_free(config->no_focus);
 	list_free(config->active_bar_modifiers);
-	list_free(config->config_chain);
+	list_free_items_and_destroy(config->config_chain);
 	list_free(config->command_policies);
 	list_free(config->feature_policies);
 	list_free(config->ipc_policies);
@@ -141,11 +141,18 @@ static void destroy_removed_seats(struct sway_config *old_config,
 	int i;
 	for (i = 0; i < old_config->seat_configs->length; i++) {
 		seat_config = old_config->seat_configs->items[i];
+		// Skip the wildcard seat config, it won't have a matching real seat.
+		if (strcmp(seat_config->name, "*") == 0) {
+			continue;
+		}
+
 		/* Also destroy seats that aren't present in new config */
 		if (new_config && list_seq_find(new_config->seat_configs,
 				seat_name_cmp, seat_config->name) < 0) {
-			seat = input_manager_get_seat(seat_config->name);
-			seat_destroy(seat);
+			seat = input_manager_get_seat(seat_config->name, false);
+			if (seat) {
+				seat_destroy(seat);
+			}
 		}
 	}
 }
@@ -372,6 +379,13 @@ bool load_main_config(const char *file, bool is_active, bool validating) {
 		path = get_config_path();
 	}
 
+	char *real_path = realpath(path, NULL);
+	if (real_path == NULL) {
+		sway_log(SWAY_DEBUG, "%s not found.", path);
+		free(path);
+		return false;
+	}
+
 	struct sway_config *old_config = config;
 	config = calloc(1, sizeof(struct sway_config));
 	if (!config) {
@@ -395,7 +409,7 @@ bool load_main_config(const char *file, bool is_active, bool validating) {
 	}
 
 	config->current_config_path = path;
-	list_add(config->config_chain, path);
+	list_add(config->config_chain, real_path);
 
 	config->reading = true;
 
@@ -550,7 +564,7 @@ bool load_include_configs(const char *path, struct sway_config *config,
 
 	wordexp_t p;
 
-	if (wordexp(path, &p, 0) < 0) {
+	if (wordexp(path, &p, 0) != 0) {
 		free(parent_path);
 		free(wd);
 		return false;

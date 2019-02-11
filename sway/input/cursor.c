@@ -362,7 +362,7 @@ void cursor_send_pointer_motion(struct sway_cursor *cursor, uint32_t time_msec,
 			struct sway_output *focused_output = node_get_output(focus);
 			struct sway_output *output = node_get_output(node);
 			if (output != focused_output) {
-				seat_set_focus(seat, node);
+				seat_set_focus(seat, seat_get_focus_inactive(seat, node));
 			}
 		} else if (node->type == N_CONTAINER && node->sway_container->view) {
 			// Focus node if the following are true:
@@ -1459,7 +1459,11 @@ void handle_pointer_constraint(struct wl_listener *listener, void *data) {
 void sway_cursor_constrain(struct sway_cursor *cursor,
 		struct wlr_pointer_constraint_v1 *constraint) {
 	struct seat_config *config = seat_get_config(cursor->seat);
-	if (config->allow_constrain == CONSTRAIN_DISABLE) {
+	if (!config) {
+		config = seat_get_config_by_name("*");
+	}
+
+	if (!config || config->allow_constrain == CONSTRAIN_DISABLE) {
 		return;
 	}
 

@@ -264,7 +264,7 @@ int ipc_client_handle_readable(int client_fd, uint32_t mask, void *data) {
 static bool ipc_has_event_listeners(enum ipc_command_type event) {
 	for (int i = 0; i < ipc_client_list->length; i++) {
 		struct ipc_client *client = ipc_client_list->items[i];
-		if ((client->subscribed_events & event_mask(event)) == 0) {
+		if ((client->subscribed_events & event_mask(event)) != 0) {
 			return true;
 		}
 	}
@@ -595,6 +595,16 @@ void ipc_client_handle_command(struct ipc_client *client) {
 	switch (client->current_command) {
 	case IPC_COMMAND:
 	{
+		char *line = strtok(buf, "\n");
+		while (line) {
+			size_t line_length = strlen(line);
+			if (line + line_length >= buf + client->payload_length) {
+				break;
+			}
+			line[line_length] = ';';
+			line = strtok(NULL, "\n");
+		}
+
 		list_t *res_list = execute_command(buf, NULL, NULL);
 		transaction_commit_dirty();
 		char *json = cmd_results_to_json(res_list);

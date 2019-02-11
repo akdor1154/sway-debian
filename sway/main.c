@@ -299,6 +299,14 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	// Since wayland requires XDG_RUNTIME_DIR to be set, abort with just the
+	// clear error message (when not running as an IPC client).
+	if (!getenv("XDG_RUNTIME_DIR") && optind == argc) {
+		fprintf(stderr,
+				"XDG_RUNTIME_DIR is not set in the environment. Aborting.\n");
+		exit(EXIT_FAILURE);
+	}
+
 	// As the 'callback' function for wlr_log is equivalent to that for
 	// sway, we do not need to override it.
 	if (debug) {
@@ -312,9 +320,21 @@ int main(int argc, char **argv) {
 		wlr_log_init(WLR_ERROR, NULL);
 	}
 
+	log_kernel();
+	log_distro();
+	log_env();
+	detect_proprietary(allow_unsupported_gpu);
+	detect_raspi();
+
 	if (optind < argc) { // Behave as IPC client
 		if (optind != 1) {
-			sway_log(SWAY_ERROR, "Don't use options with the IPC client");
+			sway_log(SWAY_ERROR,
+					"Detected both options and positional arguments. If you "
+					"are trying to use the IPC client, options are not "
+					"supported. Otherwise, check the provided arguments for "
+					"issues. See `man 1 sway` or `sway -h` for usage. If you "
+					"are trying to generate a debug log, use "
+					"`sway -d 2>sway.log`.");
 			exit(EXIT_FAILURE);
 		}
 		if (!drop_permissions()) {
@@ -333,11 +353,6 @@ int main(int argc, char **argv) {
 	if (!server_privileged_prepare(&server)) {
 		return 1;
 	}
-
-	log_kernel();
-	log_distro();
-	detect_proprietary(allow_unsupported_gpu);
-	detect_raspi();
 
 	if (!drop_permissions()) {
 		server_fini(&server);
@@ -358,13 +373,13 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	ipc_init(&server);
-	log_env();
-
 	if (validate) {
 		bool valid = load_main_config(config_path, false, true);
+		free(config_path);
 		return valid ? 0 : 1;
 	}
+
+	ipc_init(&server);
 
 	setenv("WAYLAND_DISPLAY", server.socket, true);
 	if (!load_main_config(config_path, false, false)) {
