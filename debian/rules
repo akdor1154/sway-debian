@@ -12,7 +12,8 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
 .PHONY: override_dh_auto_configure
 override_dh_auto_configure:
-	dh_auto_configure -- -Dsway-version=$(DEB_VERSION_UPSTREAM) --libexecdir=lib
+	sed -i -e "s/\tversion: '.\+',/\tversion: '$(DEB_VERSION_UPSTREAM)',/g" meson.build
+	dh_auto_configure -- --libexecdir=lib
 
 .PHONY: override_dh_missing
 override_dh_missing:

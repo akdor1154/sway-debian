@@ -1,8 +1,9 @@
 sway (1.0~rc2-1) experimental; urgency=medium
 
   * New upstream version
+  * d/rules: use sed to set upstream version in meson.build
 
- -- Birger Schacht <birger@rantanplan.org>  Mon, 11 Feb 2019 18:05:34 +0100
+ -- Birger Schacht <birger@rantanplan.org>  Mon, 11 Feb 2019 19:25:57 +0100
 
 sway (1.0~rc1-1) experimental; urgency=medium
 
