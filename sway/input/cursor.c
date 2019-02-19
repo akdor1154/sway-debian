@@ -283,6 +283,19 @@ void cursor_rebase(struct sway_cursor *cursor) {
 	cursor_do_rebase(cursor, time_msec, cursor->previous.node, surface, sx, sy);
 }
 
+void cursor_rebase_all(void) {
+	if (!root->outputs->length) {
+		return;
+	}
+
+	struct sway_seat *seat;
+	wl_list_for_each(seat, &server.input->seats, link) {
+		if (!seat_doing_seatop(seat)) {
+			cursor_rebase(seat->cursor);
+		}
+	}
+}
+
 static int hide_notify(void *data) {
 	struct sway_cursor *cursor = data;
 	wlr_cursor_set_image(cursor->cursor, NULL, 0, 0, 0, 0, 0, 0);
@@ -408,15 +421,16 @@ static void handle_cursor_motion(struct wl_listener *listener, void *data) {
 
 	wlr_relative_pointer_manager_v1_send_relative_motion(
 		server.relative_pointer_manager,
-		cursor->seat->wlr_seat, event->time_msec, dx, dy,
-		dx_unaccel, dy_unaccel);
+		cursor->seat->wlr_seat, (uint64_t)event->time_msec * 1000,
+		dx, dy, dx_unaccel, dy_unaccel);
 
 	struct wlr_surface *surface = NULL;
+	struct sway_node *node = NULL;
 	double sx, sy;
-	struct sway_node *node = node_at_coords(cursor->seat,
-		cursor->cursor->x, cursor->cursor->y, &surface, &sx, &sy);
-
 	if (cursor->active_constraint) {
+		node = node_at_coords(cursor->seat,
+			cursor->cursor->x, cursor->cursor->y, &surface, &sx, &sy);
+
 		if (cursor->active_constraint->surface != surface) {
 			return;
 		}
@@ -432,8 +446,13 @@ static void handle_cursor_motion(struct wl_listener *listener, void *data) {
 	}
 
 	wlr_cursor_move(cursor->cursor, event->device, dx, dy);
+
+	// Recalculate pointer location after layout checks
+	node = node_at_coords(cursor->seat,
+		cursor->cursor->x, cursor->cursor->y, &surface, &sx, &sy);
+
 	cursor_send_pointer_motion(cursor, event->time_msec, node, surface,
-		sx + dx, sy + dy);
+		sx, sy);
 	transaction_commit_dirty();
 }
 
