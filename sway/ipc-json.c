@@ -198,6 +198,9 @@ static void ipc_json_describe_output(struct sway_output *output,
 			ipc_json_output_transform_description(wlr_output->transform)));
 
 	struct sway_workspace *ws = output_get_active_workspace(output);
+	if (!sway_assert(ws, "Expected output to have a workspace")) {
+		return;
+	}
 	json_object_object_add(object, "current_workspace",
 			json_object_new_string(ws->name));
 
@@ -248,6 +251,7 @@ json_object *ipc_json_describe_disabled_output(struct sway_output *output) {
 	json_object_object_add(object, "name",
 			json_object_new_string(wlr_output->name));
 	json_object_object_add(object, "active", json_object_new_boolean(false));
+	json_object_object_add(object, "primary", json_object_new_boolean(false));
 	json_object_object_add(object, "make",
 			json_object_new_string(wlr_output->make));
 	json_object_object_add(object, "model",
@@ -255,6 +259,15 @@ json_object *ipc_json_describe_disabled_output(struct sway_output *output) {
 	json_object_object_add(object, "serial",
 			json_object_new_string(wlr_output->serial));
 	json_object_object_add(object, "modes", json_object_new_array());
+
+	json_object_object_add(object, "current_workspace", NULL);
+
+	json_object *rect_object = json_object_new_object();
+	json_object_object_add(rect_object, "x", json_object_new_int(0));
+	json_object_object_add(rect_object, "y", json_object_new_int(0));
+	json_object_object_add(rect_object, "width", json_object_new_int(0));
+	json_object_object_add(rect_object, "height", json_object_new_int(0));
+	json_object_object_add(object, "rect", rect_object);
 
 	json_object_object_add(object, "percent", NULL);
 
@@ -343,6 +356,9 @@ static void ipc_json_describe_view(struct sway_container *c, json_object *object
 	const char *app_id = view_get_app_id(c->view);
 	json_object_object_add(object, "app_id",
 			app_id ? json_object_new_string(app_id) : NULL);
+
+	bool visible = view_is_visible(c->view);
+	json_object_object_add(object, "visible", json_object_new_boolean(visible));
 
 	json_object *marks = json_object_new_array();
 	list_t *con_marks = c->marks;

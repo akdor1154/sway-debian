@@ -310,9 +310,9 @@ runtime.
 	conjunction with any other option to specify that the titlebar should be
 	excluded from the region of consideration.
 
-	There is currently, however, no way to execute a mouse binding over a layer
-	surface (which includes the background of an empty workspace). This behaviour
-	is carried over from i3.
+	If _--whole-window_ is given, the command can be triggered when the cursor
+	is over an empty workspace. Using a mouse binding over a layer surface's
+	exclusive region is not currently possible.
 
 	Example:
 ```
@@ -511,9 +511,9 @@ The default colors are:
 
 *smart_borders* on|no_gaps|off
 	If smart_borders are _on_, borders will only be enabled if the workspace
-	only has one visible child (identical to _hide_edge_borders_ smart). If
-	smart_borders is set to _no_gaps_, borders will only be enabled if the
-	workspace only has one visible child and gaps greater than zero.
+	has more than one visible child (identical to _hide_edge_borders_ smart).
+	If smart_borders is set to _no_gaps_, borders will only be enabled if the
+	workspace has more than one visible child and gaps equal to zero.
 
 *smart_gaps* on|off
 	If smart_gaps are _on_ gaps will only be enabled if a workspace has more
