@@ -1,6 +1,8 @@
 sway (1.0~rc4-1) experimental; urgency=medium
 
   * New upstream version
+  * Add patch do install zsh completions into correct
+    directory (Closes: 922777)
 
  -- Birger Schacht <birger@rantanplan.org>  Sat, 02 Mar 2019 22:21:56 +0100
 
