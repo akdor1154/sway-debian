@@ -8,8 +8,10 @@ sway (1.0-1) experimental; urgency=medium
     (Closes: 924063)
   * d/patches/0002-Replace-urxvt-with-x-terminal-emulator.patch
     Replace urxvt in the default config file with x-terminal-emulator
+  * d/control: remove workaround for libwlroots run dependency, as
+    that's fixed since libwlroots1
 
- -- Birger Schacht <birger@rantanplan.org>  Sat, 02 Mar 2019 22:21:56 +0100
+ -- Birger Schacht <birger@rantanplan.org>  Mon, 11 Mar 2019 20:44:33 +0100
 
 sway (1.0~rc3-1) experimental; urgency=medium
 

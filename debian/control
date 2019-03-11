@@ -34,10 +34,6 @@ Architecture: any
 Depends:
  ${shlibs:Depends},
  ${misc:Depends},
-# The following line is a workaround to help users of Debian experimental avoid
-# a broken sway installation.  It will be removed if favour of relying on
-# dpkg-shlibdeps in the future. See also https://bugs.debian.org/921884
- libwlroots1 (>= 0.5)
 Recommends: sway-backgrounds, suckless-tools, x-terminal-emulator
 Suggests: swayidle, swaylock
 Description: i3-compatible Wayland compositor
