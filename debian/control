@@ -38,7 +38,7 @@ Depends:
 # a broken sway installation.  It will be removed if favour of relying on
 # dpkg-shlibdeps in the future. See also https://bugs.debian.org/921884
  libwlroots0 (>= 0.3)
-Recommends: sway-backgrounds
+Recommends: sway-backgrounds, suckless-tools, x-terminal-emulator
 Suggests: swayidle, swaylock
 Description: i3-compatible Wayland compositor
  sway (SirCmpwn's Wayland compositor) is a tiling Wayland compositor and a

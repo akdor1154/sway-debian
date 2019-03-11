@@ -3,6 +3,11 @@ sway (1.0~rc4-1) experimental; urgency=medium
   * New upstream version
   * Add patch do install zsh completions into correct
     directory (Closes: 922777)
+  * d/control: add suckless-tools and x-terminal-emulator to
+    Recommends, because the default sway config uses dmenu(1)
+    (Closes: 924063)
+  * d/patches/0002-Replace-urxvt-with-x-terminal-emulator.patch
+    Replace urxvt in the default config file with x-terminal-emulator
 
  -- Birger Schacht <birger@rantanplan.org>  Sat, 02 Mar 2019 22:21:56 +0100
 
