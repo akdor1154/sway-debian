@@ -5,7 +5,7 @@ Maintainer: Nicolas Braud-Santoni <nicolas@braud-santoni.eu>
 Uploaders: Birger Schacht <birger@rantanplan.org>
 Build-Depends:
  debhelper-compat (= 12),
- libwlroots-dev (>= 0.4),
+ libwlroots-dev (>= 0.5),
  libwayland-dev,
  libinput-dev (>= 1.6.0),
  libcap-dev,
@@ -37,7 +37,7 @@ Depends:
 # The following line is a workaround to help users of Debian experimental avoid
 # a broken sway installation.  It will be removed if favour of relying on
 # dpkg-shlibdeps in the future. See also https://bugs.debian.org/921884
- libwlroots0 (>= 0.3)
+ libwlroots1 (>= 0.5)
 Recommends: sway-backgrounds, suckless-tools, x-terminal-emulator
 Suggests: swayidle, swaylock
 Description: i3-compatible Wayland compositor
