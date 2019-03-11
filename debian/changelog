@@ -1,4 +1,4 @@
-sway (1.0~rc4-1) experimental; urgency=medium
+sway (1.0-1) experimental; urgency=medium
 
   * New upstream version
   * Add patch do install zsh completions into correct
