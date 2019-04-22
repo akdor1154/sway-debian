@@ -4,5 +4,6 @@ usr/share/bash-completion/completions/sway*
 usr/share/fish/completions/sway*
 usr/share/man/man1/sway*
 usr/share/man/man5/sway*
+usr/share/man/man7/sway*
 usr/share/wayland-sessions
 usr/share/zsh/vendor-completions/_sway*
