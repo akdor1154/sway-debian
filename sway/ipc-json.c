@@ -350,6 +350,40 @@ static void ipc_json_describe_workspace(struct sway_workspace *workspace,
 	json_object_object_add(object, "floating_nodes", floating_array);
 }
 
+static void get_deco_rect(struct sway_container *c, struct wlr_box *deco_rect) {
+	enum sway_container_layout parent_layout = container_parent_layout(c);
+	if ((parent_layout != L_TABBED && parent_layout != L_STACKED &&
+			c->current.border != B_NORMAL) ||
+			c->fullscreen_mode != FULLSCREEN_NONE ||
+			c->workspace == NULL) {
+		deco_rect->x = deco_rect->y = deco_rect->width = deco_rect->height = 0;
+		return;
+	}
+
+	if (c->parent) {
+		deco_rect->x = c->x - c->parent->x;
+		deco_rect->y = c->y - c->parent->y;
+	} else {
+		deco_rect->x = c->x - c->workspace->x;
+		deco_rect->y = c->y - c->workspace->y;
+	}
+	deco_rect->width = c->width;
+	deco_rect->height = container_titlebar_height();
+
+	if (parent_layout == L_TABBED) {
+		deco_rect->width = c->parent
+			? c->parent->width / c->parent->children->length
+			: c->workspace->width / c->workspace->tiling->length;
+		deco_rect->x += deco_rect->width * container_sibling_index(c);
+	} else if (container_parent_layout(c) == L_STACKED) {
+		if (!c->view) {
+			size_t siblings = container_get_siblings(c)->length;
+			deco_rect->y -= deco_rect->height * siblings;
+		}
+		deco_rect->y += deco_rect->height * container_sibling_index(c);
+	}
+}
+
 static void ipc_json_describe_view(struct sway_container *c, json_object *object) {
 	json_object_object_add(object, "pid", json_object_new_int(c->view->pid));
 
@@ -376,15 +410,6 @@ static void ipc_json_describe_view(struct sway_container *c, json_object *object
 	};
 
 	json_object_object_add(object, "window_rect", ipc_json_create_rect(&window_box));
-
-	struct wlr_box deco_box = {0, 0, 0, 0};
-
-	if (c->current.border == B_NORMAL) {
-		deco_box.width = c->width;
-		deco_box.height = c->content_y - c->y;
-	}
-
-	json_object_object_add(object, "deco_rect", ipc_json_create_rect(&deco_box));
 
 	struct wlr_box geometry = {0, 0, c->view->natural_width, c->view->natural_height};
 	json_object_object_add(object, "geometry", ipc_json_create_rect(&geometry));
@@ -465,6 +490,10 @@ static void ipc_json_describe_container(struct sway_container *c, json_object *o
 			json_object_new_int(c->current.border_thickness));
 	json_object_object_add(object, "floating_nodes", json_object_new_array());
 
+	struct wlr_box deco_box = {0, 0, 0, 0};
+	get_deco_rect(c, &deco_box);
+	json_object_object_add(object, "deco_rect", ipc_json_create_rect(&deco_box));
+
 	if (c->view) {
 		ipc_json_describe_view(c, object);
 	}
@@ -505,6 +534,16 @@ json_object *ipc_json_describe_node(struct sway_node *node) {
 
 	struct wlr_box box;
 	node_get_box(node, &box);
+	if (node->type == N_CONTAINER) {
+		struct wlr_box deco_rect = {0, 0, 0, 0};
+		get_deco_rect(node->sway_container, &deco_rect);
+		size_t count = 1;
+		if (container_parent_layout(node->sway_container) == L_STACKED) {
+			count = container_get_siblings(node->sway_container)->length;
+		}
+		box.y += deco_rect.height * count;
+		box.height -= deco_rect.height * count;
+	}
 
 	json_object *focus = json_object_new_array();
 	struct focus_inactive_data data = {
@@ -579,6 +618,187 @@ json_object *ipc_json_describe_node_recursive(struct sway_node *node) {
 	return object;
 }
 
+static json_object *describe_libinput_device(struct libinput_device *device) {
+	json_object *object = json_object_new_object();
+
+	const char *events = "unknown";
+	switch (libinput_device_config_send_events_get_mode(device)) {
+	case LIBINPUT_CONFIG_SEND_EVENTS_ENABLED:
+		events = "enabled";
+		break;
+	case LIBINPUT_CONFIG_SEND_EVENTS_DISABLED_ON_EXTERNAL_MOUSE:
+		events = "disabled_on_external_mouse";
+		break;
+	case LIBINPUT_CONFIG_SEND_EVENTS_DISABLED:
+		events = "disabled";
+		break;
+	}
+	json_object_object_add(object, "send_events",
+			json_object_new_string(events));
+
+	if (libinput_device_config_tap_get_finger_count(device) > 0) {
+		const char *tap = "unknown";
+		switch (libinput_device_config_tap_get_enabled(device)) {
+		case LIBINPUT_CONFIG_TAP_ENABLED:
+			tap = "enabled";
+			break;
+		case LIBINPUT_CONFIG_TAP_DISABLED:
+			tap = "disabled";
+			break;
+		}
+		json_object_object_add(object, "tap", json_object_new_string(tap));
+
+		const char *button_map = "unknown";
+		switch (libinput_device_config_tap_get_button_map(device)) {
+		case LIBINPUT_CONFIG_TAP_MAP_LRM:
+			button_map = "lrm";
+			break;
+		case LIBINPUT_CONFIG_TAP_MAP_LMR:
+			button_map = "lmr";
+			break;
+		}
+		json_object_object_add(object, "tap_button_map",
+				json_object_new_string(button_map));
+
+		const char* drag = "unknown";
+		switch (libinput_device_config_tap_get_drag_enabled(device)) {
+		case LIBINPUT_CONFIG_DRAG_ENABLED:
+			drag = "enabled";
+			break;
+		case LIBINPUT_CONFIG_DRAG_DISABLED:
+			drag = "disabled";
+			break;
+		}
+		json_object_object_add(object, "tap_drag",
+				json_object_new_string(drag));
+
+		const char *drag_lock = "unknown";
+		switch (libinput_device_config_tap_get_drag_lock_enabled(device)) {
+		case LIBINPUT_CONFIG_DRAG_LOCK_ENABLED:
+			drag_lock = "enabled";
+			break;
+		case LIBINPUT_CONFIG_DRAG_LOCK_DISABLED:
+			drag_lock = "disabled";
+			break;
+		}
+		json_object_object_add(object, "tap_drag_lock",
+				json_object_new_string(drag_lock));
+	}
+
+	if (libinput_device_config_accel_is_available(device)) {
+		double accel = libinput_device_config_accel_get_speed(device);
+		json_object_object_add(object, "accel_speed",
+				json_object_new_double(accel));
+
+		const char *accel_profile = "unknown";
+		switch (libinput_device_config_accel_get_profile(device)) {
+		case LIBINPUT_CONFIG_ACCEL_PROFILE_NONE:
+			accel_profile = "none";
+			break;
+		case LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT:
+			accel_profile = "flat";
+			break;
+		case LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE:
+			accel_profile = "adaptive";
+			break;
+		}
+		json_object_object_add(object, "accel_profile",
+				json_object_new_string(accel_profile));
+	}
+
+	if (libinput_device_config_scroll_has_natural_scroll(device)) {
+		const char *natural_scroll = "disabled";
+		if (libinput_device_config_scroll_get_natural_scroll_enabled(device)) {
+			natural_scroll = "enabled";
+		}
+		json_object_object_add(object, "natural_scroll",
+				json_object_new_string(natural_scroll));
+	}
+
+	if (libinput_device_config_left_handed_is_available(device)) {
+		const char *left_handed = "disabled";
+		if (libinput_device_config_left_handed_get(device) != 0) {
+			left_handed = "enabled";
+		}
+		json_object_object_add(object, "left_handed",
+				json_object_new_string(left_handed));
+	}
+
+	uint32_t click_methods = libinput_device_config_click_get_methods(device);
+	if ((click_methods & ~LIBINPUT_CONFIG_CLICK_METHOD_NONE) != 0) {
+		const char *click_method = "unknown";
+		switch (libinput_device_config_click_get_method(device)) {
+		case LIBINPUT_CONFIG_CLICK_METHOD_NONE:
+			click_method = "none";
+			break;
+		case LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS:
+			click_method = "button_areas";
+			break;
+		case LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER:
+			click_method = "clickfinger";
+			break;
+		}
+		json_object_object_add(object, "click_method",
+				json_object_new_string(click_method));
+	}
+
+	if (libinput_device_config_middle_emulation_is_available(device)) {
+		const char *middle_emulation = "unknown";
+		switch (libinput_device_config_middle_emulation_get_enabled(device)) {
+		case LIBINPUT_CONFIG_MIDDLE_EMULATION_ENABLED:
+			middle_emulation = "enabled";
+			break;
+		case LIBINPUT_CONFIG_MIDDLE_EMULATION_DISABLED:
+			middle_emulation = "disabled";
+			break;
+		}
+		json_object_object_add(object, "middle_emulation",
+				json_object_new_string(middle_emulation));
+	}
+
+	uint32_t scroll_methods = libinput_device_config_scroll_get_methods(device);
+	if ((scroll_methods & ~LIBINPUT_CONFIG_SCROLL_NO_SCROLL) != 0) {
+		const char *scroll_method = "unknown";
+		switch (libinput_device_config_scroll_get_method(device)) {
+		case LIBINPUT_CONFIG_SCROLL_NO_SCROLL:
+			scroll_method = "none";
+			break;
+		case LIBINPUT_CONFIG_SCROLL_2FG:
+			scroll_method = "two_finger";
+			break;
+		case LIBINPUT_CONFIG_SCROLL_EDGE:
+			scroll_method = "edge";
+			break;
+		case LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN:
+			scroll_method = "on_button_down";
+			break;
+		}
+		json_object_object_add(object, "scroll_method",
+				json_object_new_string(scroll_method));
+
+		if ((scroll_methods & LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN) != 0) {
+			uint32_t button = libinput_device_config_scroll_get_button(device);
+			json_object_object_add(object, "scroll_button",
+					json_object_new_int(button));
+		}
+	}
+
+	if (libinput_device_config_dwt_is_available(device)) {
+		const char *dwt = "unknown";
+		switch (libinput_device_config_dwt_get_enabled(device)) {
+		case LIBINPUT_CONFIG_DWT_ENABLED:
+			dwt = "enabled";
+			break;
+		case LIBINPUT_CONFIG_DWT_DISABLED:
+			dwt = "disabled";
+			break;
+		}
+		json_object_object_add(object, "dwt", json_object_new_string(dwt));
+	}
+
+	return object;
+}
+
 json_object *ipc_json_describe_input(struct sway_input_device *device) {
 	if (!(sway_assert(device, "Device must not be null"))) {
 		return NULL;
@@ -622,21 +842,8 @@ json_object *ipc_json_describe_input(struct sway_input_device *device) {
 	if (wlr_input_device_is_libinput(device->wlr_device)) {
 		struct libinput_device *libinput_dev;
 		libinput_dev = wlr_libinput_get_device_handle(device->wlr_device);
-
-		const char *events = "unknown";
-		switch (libinput_device_config_send_events_get_mode(libinput_dev)) {
-		case LIBINPUT_CONFIG_SEND_EVENTS_ENABLED:
-			events = "enabled";
-			break;
-		case LIBINPUT_CONFIG_SEND_EVENTS_DISABLED_ON_EXTERNAL_MOUSE:
-			events = "disabled_on_external_mouse";
-			break;
-		case LIBINPUT_CONFIG_SEND_EVENTS_DISABLED:
-			events = "disabled";
-			break;
-		}
-		json_object_object_add(object, "libinput_send_events",
-				json_object_new_string(events));
+		json_object_object_add(object, "libinput",
+				describe_libinput_device(libinput_dev));
 	}
 
 	return object;

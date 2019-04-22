@@ -24,7 +24,7 @@ static void handle_motion(struct sway_seat *seat, uint32_t time_msec) {
 	e->moved = true;
 }
 
-static void handle_finish(struct sway_seat *seat) {
+static void handle_finish(struct sway_seat *seat, uint32_t time_msec) {
 	struct seatop_down_event *e = seat->seatop_data;
 	struct sway_cursor *cursor = seat->cursor;
 	// Set the cursor's previous coords to the x/y at the start of the
@@ -58,10 +58,11 @@ static const struct sway_seatop_impl seatop_impl = {
 	.finish = handle_finish,
 	.abort = handle_abort,
 	.unref = handle_unref,
+	.allows_events = true,
 };
 
-void seatop_begin_down(struct sway_seat *seat,
-		struct sway_container *con, uint32_t button, int sx, int sy) {
+void seatop_begin_down(struct sway_seat *seat, struct sway_container *con,
+		uint32_t time_msec, uint32_t button, int sx, int sy) {
 	seatop_abort(seat);
 
 	struct seatop_down_event *e =

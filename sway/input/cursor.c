@@ -280,7 +280,7 @@ static void cursor_do_rebase(struct sway_cursor *cursor, uint32_t time_msec,
 void cursor_rebase(struct sway_cursor *cursor) {
 	uint32_t time_msec = get_current_time_msec();
 	struct wlr_surface *surface = NULL;
-	double sx, sy;
+	double sx = 0.0, sy = 0.0;
 	cursor->previous.node = node_at_coords(cursor->seat,
 			cursor->cursor->x, cursor->cursor->y, &surface, &sx, &sy);
 	cursor_do_rebase(cursor, time_msec, cursor->previous.node, surface, sx, sy);
@@ -431,7 +431,7 @@ static void handle_cursor_motion(struct wl_listener *listener, void *data) {
 	struct sway_node *node = NULL;
 	double sx, sy;
 	if (cursor->active_constraint) {
-		node = node_at_coords(cursor->seat,
+		node_at_coords(cursor->seat,
 			cursor->cursor->x, cursor->cursor->y, &surface, &sx, &sy);
 
 		if (cursor->active_constraint->surface != surface) {
@@ -476,7 +476,7 @@ static void cursor_motion_absolute(struct sway_cursor *cursor,
 		dx, dy, dx, dy);
 
 	struct wlr_surface *surface = NULL;
-	double sx, sy;
+	double sx = 0.0, sy = 0.0;
 	struct sway_node *node = node_at_coords(cursor->seat,
 		lx, ly, &surface, &sx, &sy);
 
@@ -605,14 +605,16 @@ void dispatch_cursor_button(struct sway_cursor *cursor,
 
 	// Handle existing seat operation
 	if (seat_doing_seatop(seat)) {
-		if (button == seat->seatop_button && state == WLR_BUTTON_RELEASED) {
-			seatop_finish(seat);
-			seat_pointer_notify_button(seat, time_msec, button, state);
-		}
 		if (state == WLR_BUTTON_PRESSED) {
 			state_add_button(cursor, button);
 		} else {
 			state_erase_button(cursor, button);
+		}
+		if (seatop_allows_events(seat)) {
+			seat_pointer_notify_button(seat, time_msec, button, state);
+		}
+		if (button == seat->seatop_button && state == WLR_BUTTON_RELEASED) {
+			seatop_finish(seat, time_msec);
 		}
 		return;
 	}
@@ -770,8 +772,6 @@ void dispatch_cursor_button(struct sway_cursor *cursor,
 			seat_set_focus(seat, node);
 		}
 
-		seat_pointer_notify_button(seat, time_msec, button, state);
-
 		// If moving a container by it's title bar, use a threshold for the drag
 		if (!mod_pressed && config->tiling_drag_threshold > 0) {
 			seatop_begin_move_tiling_threshold(seat, cont, button);
@@ -784,8 +784,8 @@ void dispatch_cursor_button(struct sway_cursor *cursor,
 	// Handle mousedown on a container surface
 	if (surface && cont && state == WLR_BUTTON_PRESSED) {
 		seat_set_focus_container(seat, cont);
-		seat_pointer_notify_button(seat, time_msec, button, state);
-		seatop_begin_down(seat, cont, button, sx, sy);
+		seatop_begin_down(seat, cont, time_msec, button, sx, sy);
+		seat_pointer_notify_button(seat, time_msec, button, WLR_BUTTON_PRESSED);
 		return;
 	}
 

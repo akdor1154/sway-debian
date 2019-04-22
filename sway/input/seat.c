@@ -705,8 +705,7 @@ void seat_configure_xcursor(struct sway_seat *seat) {
 		seat->cursor->xcursor_manager =
 			wlr_xcursor_manager_create(cursor_theme, 24);
 		if (sway_assert(seat->cursor->xcursor_manager,
-					"Cannot create XCursor manager for theme %s",
-					cursor_theme)) {
+					"Cannot create XCursor manager for theme")) {
 			return;
 		}
 	}
@@ -1102,7 +1101,7 @@ struct sway_node *seat_get_focus(struct sway_seat *seat) {
 }
 
 struct sway_workspace *seat_get_focused_workspace(struct sway_seat *seat) {
-	struct sway_node *focus = seat_get_focus(seat);
+	struct sway_node *focus = seat_get_focus_inactive(seat, &root->node);
 	if (!focus) {
 		return NULL;
 	}
@@ -1112,7 +1111,7 @@ struct sway_workspace *seat_get_focused_workspace(struct sway_seat *seat) {
 	if (focus->type == N_WORKSPACE) {
 		return focus->sway_workspace;
 	}
-	return NULL; // unreachable
+	return NULL; // output doesn't have a workspace yet
 }
 
 struct sway_container *seat_get_focused_container(struct sway_seat *seat) {
@@ -1211,9 +1210,9 @@ void seatop_motion(struct sway_seat *seat, uint32_t time_msec) {
 	}
 }
 
-void seatop_finish(struct sway_seat *seat) {
+void seatop_finish(struct sway_seat *seat, uint32_t time_msec) {
 	if (seat->seatop_impl && seat->seatop_impl->finish) {
-		seat->seatop_impl->finish(seat);
+		seat->seatop_impl->finish(seat, time_msec);
 	}
 	free(seat->seatop_data);
 	seat->seatop_data = NULL;
@@ -1234,4 +1233,8 @@ void seatop_render(struct sway_seat *seat, struct sway_output *output,
 	if (seat->seatop_impl && seat->seatop_impl->render) {
 		seat->seatop_impl->render(seat, output, damage);
 	}
+}
+
+bool seatop_allows_events(struct sway_seat *seat) {
+	return seat->seatop_impl && seat->seatop_impl->allows_events;
 }
