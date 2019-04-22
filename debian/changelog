@@ -11,6 +11,8 @@ sway (1.0-1) experimental; urgency=medium
   * d/control: remove workaround for libwlroots run dependency, as
     that's fixed since libwlroots1
   * Make build-deps libsystemd-dev and libelogind-dev exclusive
+  * Add a patch for https://github.com/swaywm/sway/issues/3862
+    which makes sway not compile (Closes: 927723)
 
  -- Birger Schacht <birger@rantanplan.org>  Mon, 22 Apr 2019 10:10:14 +0200
 
