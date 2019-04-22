@@ -21,7 +21,7 @@ Build-Depends:
  meson,
  pkgconf,
  tree,
- scdoc (>= 1.8.1)
+ scdoc (>= 1.9.2)
 Standards-Version: 4.3.0
 Homepage: http://swaywm.org
 Vcs-Browser: https://salsa.debian.org/swaywm-team/sway
