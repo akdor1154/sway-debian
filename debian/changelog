@@ -15,8 +15,9 @@ sway (1.0-1) experimental; urgency=medium
     which makes sway not compile (Closes: 927723)
   * d/control: set meson version for build-dep like upstream
     does in meson.build (Closes: 927915)
+  * d/control: add libgl1-mesa-dri as dependency (Closes: 927990)
 
- -- Birger Schacht <birger@rantanplan.org>  Mon, 22 Apr 2019 10:10:14 +0200
+ -- Birger Schacht <birger@rantanplan.org>  Fri, 26 Apr 2019 08:33:51 +0200
 
 sway (1.0~rc3-1) experimental; urgency=medium
 
