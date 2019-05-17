@@ -5,7 +5,7 @@ Maintainer: Nicolas Braud-Santoni <nicolas@braud-santoni.eu>
 Uploaders: Birger Schacht <birger@rantanplan.org>
 Build-Depends:
  debhelper-compat (= 12),
- libwlroots-dev (>= 0.5),
+ libwlroots-dev (= 0.6),
  libwayland-dev,
  libinput-dev (>= 1.6.0),
  libcap-dev,
