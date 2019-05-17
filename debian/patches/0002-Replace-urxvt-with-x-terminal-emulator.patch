@@ -1,6 +1,6 @@
-From 20b0d6e218842ef58e364f9a7c9501a277264128 Mon Sep 17 00:00:00 2001
+From c889817ea01a37c7a1d03dde003b96de8fd160c9 Mon Sep 17 00:00:00 2001
 From: Birger Schacht <birger@rantanplan.org>
-Date: Mon, 11 Mar 2019 19:58:54 +0100
+Date: Fri, 17 May 2019 09:13:21 +0200
 Subject: [PATCH] Replace urxvt with x-terminal-emulator
 
 ---
@@ -8,7 +8,7 @@ Subject: [PATCH] Replace urxvt with x-terminal-emulator
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/config.in b/config.in
-index fbd95235..3d31e0c5 100644
+index 9d6f2e66..591e4708 100644
 --- a/config.in
 +++ b/config.in
 @@ -14,7 +14,7 @@ set $down j
@@ -19,7 +19,7 @@ index fbd95235..3d31e0c5 100644
 +set $term x-terminal-emulator
  # Your preferred application launcher
  # Note: it's recommended that you pass the final command to sway
- set $menu dmenu_path | dmenu | xargs swaymsg exec
+ set $menu dmenu_path | dmenu | xargs swaymsg exec --
 -- 
 2.20.1
 
