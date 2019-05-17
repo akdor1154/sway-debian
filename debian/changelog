@@ -1,4 +1,4 @@
-sway (1.0-1) experimental; urgency=medium
+sway (1.1~rc2-1) experimental; urgency=medium
 
   * New upstream version
   * Add patch do install zsh completions into correct
@@ -17,7 +17,7 @@ sway (1.0-1) experimental; urgency=medium
     does in meson.build (Closes: 927915)
   * d/control: add libgl1-mesa-dri as dependency (Closes: 927990)
 
- -- Birger Schacht <birger@rantanplan.org>  Fri, 26 Apr 2019 08:33:51 +0200
+ -- Birger Schacht <birger@rantanplan.org>  Fri, 17 May 2019 09:03:42 +0200
 
 sway (1.0~rc3-1) experimental; urgency=medium
 
