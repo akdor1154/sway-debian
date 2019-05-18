@@ -34,6 +34,7 @@ Depends:
  ${shlibs:Depends},
  ${misc:Depends},
  libgl1-mesa-dri,
+ swaybg
 Recommends: sway-backgrounds, suckless-tools, x-terminal-emulator
 Suggests: swayidle, swaylock
 Description: i3-compatible Wayland compositor
