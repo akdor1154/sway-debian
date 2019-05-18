@@ -150,9 +150,9 @@ void output_view_for_each_surface(struct sway_output *output,
 		.user_iterator = iterator,
 		.user_data = user_data,
 		.output = output,
-		.ox = view->container->current.content_x - output->wlr_output->lx
+		.ox = view->container->current.content_x - output->lx
 			- view->geometry.x,
-		.oy = view->container->current.content_y - output->wlr_output->ly
+		.oy = view->container->current.content_y - output->ly
 			- view->geometry.y,
 		.width = view->container->current.content_width,
 		.height = view->container->current.content_height,
@@ -169,9 +169,9 @@ void output_view_for_each_popup(struct sway_output *output,
 		.user_iterator = iterator,
 		.user_data = user_data,
 		.output = output,
-		.ox = view->container->current.content_x - output->wlr_output->lx
+		.ox = view->container->current.content_x - output->lx
 			- view->geometry.x,
-		.oy = view->container->current.content_y - output->wlr_output->ly
+		.oy = view->container->current.content_y - output->ly
 			- view->geometry.y,
 		.width = view->container->current.content_width,
 		.height = view->container->current.content_height,
@@ -202,8 +202,8 @@ void output_unmanaged_for_each_surface(struct sway_output *output,
 	wl_list_for_each(unmanaged_surface, unmanaged, link) {
 		struct wlr_xwayland_surface *xsurface =
 			unmanaged_surface->wlr_xwayland_surface;
-		double ox = unmanaged_surface->lx - output->wlr_output->lx;
-		double oy = unmanaged_surface->ly - output->wlr_output->ly;
+		double ox = unmanaged_surface->lx - output->lx;
+		double oy = unmanaged_surface->ly - output->ly;
 
 		output_surface_for_each_surface(output, xsurface->surface, ox, oy,
 			iterator, user_data);
@@ -216,8 +216,8 @@ void output_drag_icons_for_each_surface(struct sway_output *output,
 		void *user_data) {
 	struct sway_drag_icon *drag_icon;
 	wl_list_for_each(drag_icon, drag_icons, link) {
-		double ox = drag_icon->x - output->wlr_output->lx;
-		double oy = drag_icon->y - output->wlr_output->ly;
+		double ox = drag_icon->x - output->lx;
+		double oy = drag_icon->y - output->ly;
 
 		if (drag_icon->wlr_drag_icon->mapped) {
 			output_surface_for_each_surface(output,
@@ -251,14 +251,11 @@ static void output_for_each_surface(struct sway_output *output,
 	};
 
 	struct sway_workspace *workspace = output_get_active_workspace(output);
-	if (!workspace) {
-		return;
-	}
 	struct sway_container *fullscreen_con = root->fullscreen_global;
-	if (fullscreen_con && container_is_scratchpad_hidden(fullscreen_con)) {
-		fullscreen_con = NULL;
-	}
 	if (!fullscreen_con) {
+		if (!workspace) {
+			return;
+		}
 		fullscreen_con = workspace->current.fullscreen;
 	}
 	if (fullscreen_con) {
@@ -381,14 +378,15 @@ static void damage_handle_frame(struct wl_listener *listener, void *data) {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 
-	bool needs_swap;
+	bool needs_frame;
 	pixman_region32_t damage;
 	pixman_region32_init(&damage);
-	if (!wlr_output_damage_make_current(output->damage, &needs_swap, &damage)) {
+	if (!wlr_output_damage_attach_render(output->damage,
+			&needs_frame, &damage)) {
 		return;
 	}
 
-	if (needs_swap) {
+	if (needs_frame) {
 		output_render(output, &now, &damage);
 	}
 
@@ -463,8 +461,8 @@ void output_damage_from_view(struct sway_output *output,
 void output_damage_box(struct sway_output *output, struct wlr_box *_box) {
 	struct wlr_box box;
 	memcpy(&box, _box, sizeof(struct wlr_box));
-	box.x -= output->wlr_output->lx;
-	box.y -= output->wlr_output->ly;
+	box.x -= output->lx;
+	box.y -= output->ly;
 	scale_box(&box, output->wlr_output->scale);
 	wlr_output_damage_add_box(output->damage, &box);
 }
@@ -484,8 +482,8 @@ void output_damage_whole_container(struct sway_output *output,
 		struct sway_container *con) {
 	// Pad the box by 1px, because the width is a double and might be a fraction
 	struct wlr_box box = {
-		.x = con->current.x - output->wlr_output->lx - 1,
-		.y = con->current.y - output->wlr_output->ly - 1,
+		.x = con->current.x - output->lx - 1,
+		.y = con->current.y - output->ly - 1,
 		.width = con->current.width + 2,
 		.height = con->current.height + 2,
 	};
@@ -525,7 +523,6 @@ static void handle_destroy(struct wl_listener *listener, void *data) {
 	wl_list_remove(&output->present.link);
 	wl_list_remove(&output->damage_destroy.link);
 	wl_list_remove(&output->damage_frame.link);
-	wl_list_remove(&output->swaybg_client_destroy.link);
 
 	transaction_commit_dirty();
 }
@@ -533,7 +530,7 @@ static void handle_destroy(struct wl_listener *listener, void *data) {
 static void handle_mode(struct wl_listener *listener, void *data) {
 	struct sway_output *output = wl_container_of(listener, output, mode);
 	if (!output->configured && !output->enabled) {
-		struct output_config *oc = output_find_config(output);
+		struct output_config *oc = find_output_config(output);
 		if (output->wlr_output->current_mode != NULL &&
 				(!oc || oc->enabled)) {
 			// We want to enable this output, but it didn't work last time,
@@ -632,9 +629,8 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 	output->damage_frame.notify = damage_handle_frame;
 	wl_signal_add(&output->damage->events.destroy, &output->damage_destroy);
 	output->damage_destroy.notify = damage_handle_destroy;
-	wl_list_init(&output->swaybg_client_destroy.link);
 
-	struct output_config *oc = output_find_config(output);
+	struct output_config *oc = find_output_config(output);
 	if (!oc || oc->enabled) {
 		output_enable(output, oc);
 	} else {

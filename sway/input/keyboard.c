@@ -424,11 +424,18 @@ static int handle_keyboard_repeat(void *data) {
 static void determine_bar_visibility(uint32_t modifiers) {
 	for (int i = 0; i < config->bars->length; ++i) {
 		struct bar_config *bar = config->bars->items[i];
-		if (strcmp(bar->mode, bar->hidden_state) == 0) { // both are "hide"
-			bool should_be_visible = 
-				bar->modifier != 0 && (~modifiers & bar->modifier) == 0;
-			if (bar->visible_by_modifier != should_be_visible) {
-				bar->visible_by_modifier = should_be_visible;
+		if (bar->modifier == 0) {
+			continue;
+		}
+
+		bool vis_by_mod = (~modifiers & bar->modifier) == 0;
+		if (bar->visible_by_modifier != vis_by_mod) {
+			// If visible by modifier is set, send that it is no longer visible
+			// by modifier (regardless of bar mode and state). Otherwise, only
+			// send the visible by modifier status if mode and state are hide
+			if (bar->visible_by_modifier
+					|| strcmp(bar->mode, bar->hidden_state) == 0) {
+				bar->visible_by_modifier = vis_by_mod;
 				ipc_event_bar_state_update(bar);
 			}
 		}
@@ -470,39 +477,29 @@ struct sway_keyboard *sway_keyboard_create(struct sway_seat *seat,
 }
 
 void sway_keyboard_configure(struct sway_keyboard *keyboard) {
-	struct xkb_rule_names rules;
-	memset(&rules, 0, sizeof(rules));
 	struct input_config *input_config =
 		input_device_get_config(keyboard->seat_device->input_device);
 	struct wlr_input_device *wlr_device =
 		keyboard->seat_device->input_device->wlr_device;
 
-	if (input_config && input_config->xkb_layout) {
-		rules.layout = input_config->xkb_layout;
-	} else {
+	struct xkb_rule_names rules = {0};
+	if (input_config) {
+		input_config_fill_rule_names(input_config, &rules);
+	}
+
+	if (!rules.layout) {
 		rules.layout = getenv("XKB_DEFAULT_LAYOUT");
 	}
-	if (input_config && input_config->xkb_model) {
-		rules.model = input_config->xkb_model;
-	} else {
+	if (!rules.model) {
 		rules.model = getenv("XKB_DEFAULT_MODEL");
 	}
-
-	if (input_config && input_config->xkb_options) {
-		rules.options = input_config->xkb_options;
-	} else {
+	if (!rules.options) {
 		rules.options = getenv("XKB_DEFAULT_OPTIONS");
 	}
-
-	if (input_config && input_config->xkb_rules) {
-		rules.rules = input_config->xkb_rules;
-	} else {
+	if (!rules.rules) {
 		rules.rules = getenv("XKB_DEFAULT_RULES");
 	}
-
-	if (input_config && input_config->xkb_variant) {
-		rules.variant = input_config->xkb_variant;
-	} else {
+	if (!rules.variant) {
 		rules.variant = getenv("XKB_DEFAULT_VARIANT");
 	}
 

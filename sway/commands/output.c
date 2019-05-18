@@ -18,6 +18,7 @@ static struct cmd_handler output_handlers[] = {
 	{ "res", output_cmd_mode },
 	{ "resolution", output_cmd_mode },
 	{ "scale", output_cmd_scale },
+	{ "subpixel", output_cmd_subpixel },
 	{ "transform", output_cmd_transform },
 };
 
@@ -67,6 +68,8 @@ struct cmd_results *cmd_output(int argc, char **argv) {
 	config->handler_context.leftovers.argc = 0;
 	config->handler_context.leftovers.argv = NULL;
 
+	bool background = output->background;
+
 	output = store_output_config(output);
 
 	// If reloading, the output configs will be applied after reading the
@@ -74,6 +77,9 @@ struct cmd_results *cmd_output(int argc, char **argv) {
 	// workspace name is not given to re-enabled outputs.
 	if (!config->reloading) {
 		apply_output_config_to_outputs(output);
+		if (background) {
+			spawn_swaybg();
+		}
 	}
 
 	return cmd_results_new(CMD_SUCCESS, NULL);

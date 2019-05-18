@@ -1,5 +1,6 @@
 # swaymsg(1) completion
 
+complete -f -c swaymsg
 complete -c swaymsg -s h -l help --description "Show help message and quit."
 complete -c swaymsg -s m -l monitor --description "Monitor subscribed events until killed."
 complete -c swaymsg -s p -l pretty --description "Use pretty output even when not using a tty."

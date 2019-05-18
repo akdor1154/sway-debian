@@ -85,24 +85,6 @@ static const char *ipc_json_output_transform_description(enum wl_output_transfor
 	return NULL;
 }
 
-static const char *ipc_json_device_type_description(struct sway_input_device *device) {
-	switch (device->wlr_device->type) {
-	case WLR_INPUT_DEVICE_POINTER:
-		return "pointer";
-	case WLR_INPUT_DEVICE_KEYBOARD:
-		return "keyboard";
-	case WLR_INPUT_DEVICE_TOUCH:
-		return "touch";
-	case WLR_INPUT_DEVICE_TABLET_TOOL:
-		return "tablet_tool";
-	case WLR_INPUT_DEVICE_TABLET_PAD:
-		return "tablet_pad";
-	case WLR_INPUT_DEVICE_SWITCH:
-		return "switch";
-	}
-	return "unknown";
-}
-
 json_object *ipc_json_get_version(void) {
 	int major = 0, minor = 0, patch = 0;
 	json_object *version = json_object_new_object();
@@ -258,7 +240,21 @@ json_object *ipc_json_describe_disabled_output(struct sway_output *output) {
 			json_object_new_string(wlr_output->model));
 	json_object_object_add(object, "serial",
 			json_object_new_string(wlr_output->serial));
-	json_object_object_add(object, "modes", json_object_new_array());
+
+	json_object *modes_array = json_object_new_array();
+	struct wlr_output_mode *mode;
+	wl_list_for_each(mode, &wlr_output->modes, link) {
+		json_object *mode_object = json_object_new_object();
+		json_object_object_add(mode_object, "width",
+			json_object_new_int(mode->width));
+		json_object_object_add(mode_object, "height",
+			json_object_new_int(mode->height));
+		json_object_object_add(mode_object, "refresh",
+			json_object_new_int(mode->refresh));
+		json_object_array_add(modes_array, mode_object);
+	}
+
+	json_object_object_add(object, "modes", modes_array);
 
 	json_object_object_add(object, "current_workspace", NULL);
 
@@ -352,8 +348,9 @@ static void ipc_json_describe_workspace(struct sway_workspace *workspace,
 
 static void get_deco_rect(struct sway_container *c, struct wlr_box *deco_rect) {
 	enum sway_container_layout parent_layout = container_parent_layout(c);
-	if ((parent_layout != L_TABBED && parent_layout != L_STACKED &&
-			c->current.border != B_NORMAL) ||
+	bool tab_or_stack = parent_layout == L_TABBED || parent_layout == L_STACKED;
+	if (((!tab_or_stack || container_is_floating(c)) &&
+				c->current.border != B_NORMAL) ||
 			c->fullscreen_mode != FULLSCREEN_NONE ||
 			c->workspace == NULL) {
 		deco_rect->x = deco_rect->y = deco_rect->width = deco_rect->height = 0;
@@ -370,17 +367,19 @@ static void get_deco_rect(struct sway_container *c, struct wlr_box *deco_rect) {
 	deco_rect->width = c->width;
 	deco_rect->height = container_titlebar_height();
 
-	if (parent_layout == L_TABBED) {
-		deco_rect->width = c->parent
-			? c->parent->width / c->parent->children->length
-			: c->workspace->width / c->workspace->tiling->length;
-		deco_rect->x += deco_rect->width * container_sibling_index(c);
-	} else if (container_parent_layout(c) == L_STACKED) {
-		if (!c->view) {
-			size_t siblings = container_get_siblings(c)->length;
-			deco_rect->y -= deco_rect->height * siblings;
+	if (!container_is_floating(c)) {
+		if (parent_layout == L_TABBED) {
+			deco_rect->width = c->parent
+				? c->parent->width / c->parent->children->length
+				: c->workspace->width / c->workspace->tiling->length;
+			deco_rect->x += deco_rect->width * container_sibling_index(c);
+		} else if (parent_layout == L_STACKED) {
+			if (!c->view) {
+				size_t siblings = container_get_siblings(c)->length;
+				deco_rect->y -= deco_rect->height * siblings;
+			}
+			deco_rect->y += deco_rect->height * container_sibling_index(c);
 		}
-		deco_rect->y += deco_rect->height * container_sibling_index(c);
 	}
 }
 
@@ -816,7 +815,7 @@ json_object *ipc_json_describe_input(struct sway_input_device *device) {
 		json_object_new_int(device->wlr_device->product));
 	json_object_object_add(object, "type",
 		json_object_new_string(
-			ipc_json_device_type_description(device)));
+			input_device_get_type(device)));
 
 	if (device->wlr_device->type == WLR_INPUT_DEVICE_KEYBOARD) {
 		struct wlr_keyboard *keyboard = device->wlr_device->keyboard;
