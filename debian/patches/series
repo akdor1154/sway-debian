@@ -1,3 +1,2 @@
 0001-Install-zsh-completions-into-the-correct-directory.patch
 0002-Replace-urxvt-with-x-terminal-emulator.patch
-0003-Fix-size_t-temporary-underflow-in-log_loaded_themes.patch

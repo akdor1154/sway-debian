@@ -1,6 +1,6 @@
 sway (1.1~rc2-1) experimental; urgency=medium
 
-  * New upstream version
+  * New upstream version (Closes: #927723)
   * Add patch do install zsh completions into correct
     directory (Closes: 922777)
   * d/control: add suckless-tools and x-terminal-emulator to
@@ -11,8 +11,6 @@ sway (1.1~rc2-1) experimental; urgency=medium
   * d/control: remove workaround for libwlroots run dependency, as
     that's fixed since libwlroots1
   * Make build-deps libsystemd-dev and libelogind-dev exclusive
-  * Add a patch for https://github.com/swaywm/sway/issues/3862
-    which makes sway not compile (Closes: 927723)
   * d/control: set meson version for build-dep like upstream
     does in meson.build (Closes: 927915)
   * d/control: add libgl1-mesa-dri as dependency (Closes: 927990)
