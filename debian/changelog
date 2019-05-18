@@ -14,8 +14,11 @@ sway (1.1~rc2-1) experimental; urgency=medium
   * d/control: set meson version for build-dep like upstream
     does in meson.build (Closes: 927915)
   * d/control: add libgl1-mesa-dri as dependency (Closes: 927990)
+  * d/control: Set exact version of libwlroots dependency: the
+    library breaks ABI between versions so we need the right
+    version for building sway
 
- -- Birger Schacht <birger@rantanplan.org>  Fri, 17 May 2019 09:03:42 +0200
+ -- Birger Schacht <birger@rantanplan.org>  Sat, 18 May 2019 19:39:36 +0200
 
 sway (1.0~rc3-1) experimental; urgency=medium
 
