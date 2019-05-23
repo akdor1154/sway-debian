@@ -1,4 +1,4 @@
-sway (1.1~rc2-1) experimental; urgency=medium
+sway (1.1~rc3-1) experimental; urgency=medium
 
   * New upstream version (Closes: #927723)
   * d/control:
@@ -25,7 +25,7 @@ sway (1.1~rc2-1) experimental; urgency=medium
 
   * d/copyright: Added new files
 
- -- Birger Schacht <birger@rantanplan.org>  Mon, 20 May 2019 13:21:18 +0200
+ -- Birger Schacht <birger@rantanplan.org>  Thu, 23 May 2019 20:55:30 +0200
 
 sway (1.0~rc3-1) experimental; urgency=medium
 
