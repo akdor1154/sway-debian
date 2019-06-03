@@ -1,0 +1,25 @@
+From c95869cba78d6a240afa2d67198b4e604e556bd9 Mon Sep 17 00:00:00 2001
+From: Birger Schacht <birger@rantanplan.org>
+Date: Mon, 3 Jun 2019 16:04:16 +0200
+Subject: [PATCH] Fix the version string
+
+---
+ meson.build | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/meson.build b/meson.build
+index 4c35b372..ab0f73ea 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1,7 +1,7 @@
+ project(
+ 	'sway',
+ 	'c',
+-	version: '1.0',
++	version: '1.1.1',
+ 	license: 'MIT',
+ 	meson_version: '>=0.48.0',
+ 	default_options: [
+-- 
+2.20.1
+

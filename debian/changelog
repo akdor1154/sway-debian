@@ -22,10 +22,11 @@ sway (1.1.1-1) experimental; urgency=medium
      (Closes: #922777)
    - Add patch to replace urxvt in the default config file with
      x-terminal-emulator
+   - Add patch to use the correct version string
 
   * d/copyright: Added new files
 
- -- Birger Schacht <birger@rantanplan.org>  Mon, 03 Jun 2019 15:57:27 +0200
+ -- Birger Schacht <birger@rantanplan.org>  Mon, 03 Jun 2019 16:06:41 +0200
 
 sway (1.0~rc3-1) experimental; urgency=medium
 
