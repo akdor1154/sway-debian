@@ -2,20 +2,21 @@ sway (1.1.1-1) experimental; urgency=medium
 
   * New upstream version (Closes: #927723)
   * d/control:
-   - add swaybg to dependencies as proposed by upstream
+   - Add swaybg to dependencies as proposed by upstream
      ("swaybg is a required dependency of sway")
-   - add suckless-tools and x-terminal-emulator to Recommends,
+   - Add suckless-tools and x-terminal-emulator to Recommends,
      because the default sway config uses dmenu(1) (Closes: #924063)
-   - remove workaround for libwlroots run dependency, as that's
-     fixed since libwlroots1
+   - Remove workaround for libwlroots run dependency from Depends:
+     field. Since libwlroots1 we can rely on dpkg-shlibdeps
    - Make build-deps libsystemd-dev and libelogind-dev exclusive
-   - set meson version for build-dep like upstream
+   - Set meson version for build-dep like upstream
      does in meson.build (Closes: #927915)
-   - add libgl1-mesa-dri as dependency (Closes: #927990)
-   - Set exact version of libwlroots dependency: the library breaks
+   - Add libgl1-mesa-dri as dependency (Closes: #927990)
+   - Set strict version of libwlroots dependency: the library breaks
      ABI between versions so we need the right version for building sway
    - Run wrap-and-sort on d/control
-   - Add missing build-dependencies
+   - Add missing build-dependencies: libevdev-dev, libpixman-1-dev,
+     libwayland-egl1 and libxbcommon-dev
 
   * d/patches
    - Add patch to install zsh completions into correct directory
@@ -24,7 +25,13 @@ sway (1.1.1-1) experimental; urgency=medium
      x-terminal-emulator
    - Add patch to use the correct version string
 
-  * d/copyright: Added new files
+  * d/copyright
+   - Add missing files
+   - Bump copyright years on debian/
+
+  * d/sway.install
+   - Add directory for manpages in section 7
+   - Update path of zsh completions directory
 
  -- Birger Schacht <birger@rantanplan.org>  Mon, 03 Jun 2019 16:06:41 +0200
 
