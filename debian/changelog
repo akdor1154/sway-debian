@@ -1,3 +1,9 @@
+sway (1.2-1) experimental; urgency=medium
+
+  * New upstream version
+
+ -- Birger Schacht <birger@rantanplan.org>  Fri, 30 Aug 2019 12:56:16 +0200
+
 sway (1.1.1-1) experimental; urgency=medium
 
   * New upstream version (Closes: #927723)
