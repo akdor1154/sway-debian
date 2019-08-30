@@ -3,8 +3,10 @@ sway (1.2-1) experimental; urgency=medium
   * New upstream version
   * d/control:
      Bump version of wlroots build dependency
+  * d/patches:
+     Drop patch setting the project version
 
- -- Birger Schacht <birger@rantanplan.org>  Fri, 30 Aug 2019 12:56:16 +0200
+ -- Birger Schacht <birger@rantanplan.org>  Fri, 30 Aug 2019 13:01:22 +0200
 
 sway (1.1.1-1) experimental; urgency=medium
 
