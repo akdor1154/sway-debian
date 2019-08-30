@@ -4,10 +4,12 @@ sway (1.2-1) experimental; urgency=medium
   * d/control:
     - Bump version of wlroots build dependency
     - Bump standards version to 4.4.0
+    - Set maintainer field to new team address and add nicoo to
+      uploaders
   * d/patches:
     - Drop patch setting the project version
 
- -- Birger Schacht <birger@rantanplan.org>  Fri, 30 Aug 2019 13:27:15 +0200
+ -- Birger Schacht <birger@rantanplan.org>  Fri, 30 Aug 2019 13:29:28 +0200
 
 sway (1.1.1-1) experimental; urgency=medium
 
