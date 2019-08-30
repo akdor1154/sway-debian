@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 #include <wlr/types/wlr_output_layout.h>
 #include <wlr/types/wlr_xdg_shell_v6.h>
 #include <wlr/types/wlr_xdg_shell.h>
@@ -755,14 +755,14 @@ void container_set_floating(struct sway_container *container, bool enable) {
 		struct sway_container *old_parent = container->parent;
 		container_detach(container);
 		workspace_add_floating(workspace, container);
-		container_floating_set_default_size(container);
-		container_floating_resize_and_center(container);
 		if (container->view) {
 			view_set_tiled(container->view, false);
 			if (container->view->using_csd) {
 				container->border = B_CSD;
 			}
 		}
+		container_floating_set_default_size(container);
+		container_floating_resize_and_center(container);
 		if (old_parent) {
 			container_reap_empty(old_parent);
 		}
@@ -789,6 +789,8 @@ void container_set_floating(struct sway_container *container, bool enable) {
 				container->border = container->saved_border;
 			}
 		}
+		container->width_fraction = 0;
+		container->height_fraction = 0;
 	}
 
 	container_end_mouse_operation(container);
@@ -898,6 +900,9 @@ void container_floating_move_to(struct sway_container *con,
 		return;
 	}
 	container_floating_translate(con, lx - con->x, ly - con->y);
+	if (container_is_scratchpad_hidden(con)) {
+		return;
+	}
 	struct sway_workspace *old_workspace = con->workspace;
 	struct sway_output *new_output = container_floating_find_output(con);
 	if (!sway_assert(new_output, "Unable to find any output")) {
@@ -1022,9 +1027,9 @@ void container_fullscreen_disable(struct sway_container *con) {
 	if (container_is_floating(con)) {
 		con->x = con->saved_x;
 		con->y = con->saved_y;
+		con->width = con->saved_width;
+		con->height = con->saved_height;
 	}
-	con->width = con->saved_width;
-	con->height = con->saved_height;
 
 	if (con->fullscreen_mode == FULLSCREEN_WORKSPACE) {
 		if (con->workspace) {
@@ -1171,72 +1176,6 @@ void container_discover_outputs(struct sway_container *con) {
 	}
 }
 
-void container_remove_gaps(struct sway_container *c) {
-	if (c->current_gaps.top == 0 && c->current_gaps.right == 0 &&
-			c->current_gaps.bottom == 0 && c->current_gaps.left == 0) {
-		return;
-	}
-
-	c->width += c->current_gaps.left + c->current_gaps.right;
-	c->height += c->current_gaps.top + c->current_gaps.bottom;
-	c->x -= c->current_gaps.left;
-	c->y -= c->current_gaps.top;
-
-	c->current_gaps.top = 0;
-	c->current_gaps.right = 0;
-	c->current_gaps.bottom = 0;
-	c->current_gaps.left = 0;
-}
-
-void container_add_gaps(struct sway_container *c) {
-	if (c->current_gaps.top > 0 || c->current_gaps.right > 0 ||
-			c->current_gaps.bottom > 0 || c->current_gaps.left > 0) {
-		return;
-	}
-	// Fullscreen global scratchpad containers cannot have gaps
-	struct sway_workspace *ws = c->workspace;
-	if (!ws) {
-		return;
-	}
-	// Linear containers don't have gaps because it'd create double gaps
-	if (!c->view && c->layout != L_TABBED && c->layout != L_STACKED) {
-		return;
-	}
-	// Descendants of tabbed/stacked containers re-use the gaps of the container
-	struct sway_container *temp = c;
-	while (temp) {
-		enum sway_container_layout layout = container_parent_layout(temp);
-		if (layout == L_TABBED || layout == L_STACKED) {
-			return;
-		}
-		temp = temp->parent;
-	}
-	// If smart gaps is on, don't add gaps if there is only one view visible
-	if (config->smart_gaps) {
-		struct sway_view *view = c->view;
-		if (!view) {
-			struct sway_seat *seat =
-				input_manager_get_default_seat();
-			struct sway_container *focus =
-				seat_get_focus_inactive_view(seat, &c->node);
-			view = focus ? focus->view : NULL;
-		}
-		if (view && view_is_only_visible(view)) {
-			return;
-		}
-	}
-
-	c->current_gaps.top = c->y == ws->y ? ws->gaps_inner : 0;
-	c->current_gaps.right = ws->gaps_inner;
-	c->current_gaps.bottom = ws->gaps_inner;
-	c->current_gaps.left = c->x == ws->x ? ws->gaps_inner : 0;
-
-	c->x += c->current_gaps.left;
-	c->y += c->current_gaps.top;
-	c->width -= c->current_gaps.left + c->current_gaps.right;
-	c->height -= c->current_gaps.top + c->current_gaps.bottom;
-}
-
 enum sway_container_layout container_parent_layout(struct sway_container *con) {
 	if (con->parent) {
 		return con->parent->layout;
@@ -1378,19 +1317,25 @@ void container_replace(struct sway_container *container,
 		struct sway_container *replacement) {
 	enum sway_fullscreen_mode fullscreen = container->fullscreen_mode;
 	bool scratchpad = container->scratchpad;
+	struct sway_workspace *ws = NULL;
 	if (fullscreen != FULLSCREEN_NONE) {
 		container_fullscreen_disable(container);
 	}
 	if (scratchpad) {
+		ws = container->workspace;
 		root_scratchpad_show(container);
 		root_scratchpad_remove_container(container);
 	}
 	if (container->parent || container->workspace) {
+		float width_fraction = container->width_fraction;
+		float height_fraction = container->height_fraction;
 		container_add_sibling(container, replacement, 1);
 		container_detach(container);
+		replacement->width_fraction = width_fraction;
+		replacement->height_fraction = height_fraction;
 	}
 	if (scratchpad) {
-		root_scratchpad_add_container(replacement);
+		root_scratchpad_add_container(replacement, ws);
 	}
 	switch (fullscreen) {
 	case FULLSCREEN_WORKSPACE:
@@ -1413,9 +1358,10 @@ struct sway_container *container_split(struct sway_container *child,
 	struct sway_container *cont = container_create(NULL);
 	cont->width = child->width;
 	cont->height = child->height;
+	cont->width_fraction = child->width_fraction;
+	cont->height_fraction = child->height_fraction;
 	cont->x = child->x;
 	cont->y = child->y;
-	cont->current_gaps = child->current_gaps;
 	cont->layout = layout;
 
 	container_replace(child, cont);

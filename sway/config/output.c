@@ -5,9 +5,11 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_output_layout.h>
 #include <wlr/types/wlr_output.h>
 #include "sway/config.h"
+#include "sway/input/cursor.h"
 #include "sway/output.h"
 #include "sway/tree/root.h"
 #include "log.h"
@@ -308,9 +310,8 @@ bool apply_output_config(struct output_config *oc, struct sway_output *output) {
 		wlr_output_layout_get_box(root->output_layout, wlr_output);
 	output->lx = output_box->x;
 	output->ly = output_box->y;
-	wlr_output_transformed_resolution(wlr_output,
-		&output->width, &output->height);
-
+	output->width = output_box->width;
+	output->height = output_box->height;
 
 	if (oc && oc->dpms_state == DPMS_OFF) {
 		sway_log(SWAY_DEBUG, "Turning off screen");
@@ -457,6 +458,12 @@ void apply_output_config_to_outputs(struct output_config *oc) {
 			}
 		}
 	}
+
+	struct sway_seat *seat;
+	wl_list_for_each(seat, &server.input->seats, link) {
+		wlr_seat_pointer_clear_focus(seat->wlr_seat);
+		cursor_rebase(seat->cursor);
+	}
 }
 
 void reset_outputs(void) {
@@ -570,7 +577,7 @@ bool spawn_swaybg(void) {
 		}
 	}
 
-	char **cmd = calloc(1, sizeof(char **) * length);
+	char **cmd = calloc(length, sizeof(char *));
 	if (!cmd) {
 		sway_log(SWAY_ERROR, "Failed to allocate spawn_swaybg command");
 		return false;

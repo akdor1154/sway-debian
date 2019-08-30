@@ -49,6 +49,10 @@ static bool binding_switch_compare(struct sway_switch_binding *binding_a,
 	if (binding_a->state != binding_b->state) {
 		return false;
 	}
+	if ((binding_a->flags & BINDING_LOCKED) !=
+			(binding_b->flags & BINDING_LOCKED)) {
+		return false;
+	}
 	return true;
 }
 
@@ -68,9 +72,13 @@ static bool binding_key_compare(struct sway_binding *binding_a,
 	}
 
 	uint32_t conflict_generating_flags = BINDING_RELEASE | BINDING_BORDER
-			| BINDING_CONTENTS | BINDING_TITLEBAR;
+			| BINDING_CONTENTS | BINDING_TITLEBAR | BINDING_LOCKED;
 	if ((binding_a->flags & conflict_generating_flags) !=
 			(binding_b->flags & conflict_generating_flags)) {
+		return false;
+	}
+
+	if (binding_a->group != binding_b->group) {
 		return false;
 	}
 
@@ -333,6 +341,7 @@ static struct cmd_results *cmd_bindsym_or_bindcode(int argc, char **argv,
 	}
 	binding->input = strdup("*");
 	binding->keys = create_list();
+	binding->group = XKB_LAYOUT_INVALID;
 	binding->modifiers = 0;
 	binding->flags = 0;
 	binding->type = bindcode ? BINDING_KEYCODE : BINDING_KEYSYM;
@@ -383,6 +392,34 @@ static struct cmd_results *cmd_bindsym_or_bindcode(int argc, char **argv,
 
 	list_t *split = split_string(argv[0], "+");
 	for (int i = 0; i < split->length; ++i) {
+		// Check for group
+		if (strncmp(split->items[i], "Group", strlen("Group")) == 0) {
+			if (binding->group != XKB_LAYOUT_INVALID) {
+				free_sway_binding(binding);
+				list_free_items_and_destroy(split);
+				return cmd_results_new(CMD_FAILURE,
+						"Only one group can be specified");
+			}
+			char *end;
+			int group = strtol(split->items[i] + strlen("Group"), &end, 10);
+			if (group < 1 || group > 4 || end[0] != '\0') {
+				free_sway_binding(binding);
+				list_free_items_and_destroy(split);
+				return cmd_results_new(CMD_FAILURE, "Invalid group");
+			}
+			binding->group = group - 1;
+			continue;
+		} else if (strcmp(split->items[i], "Mode_switch") == 0) {
+			// For full i3 compatibility, Mode_switch is an alias for Group2
+			if (binding->group != XKB_LAYOUT_INVALID) {
+				free_sway_binding(binding);
+				list_free_items_and_destroy(split);
+				return cmd_results_new(CMD_FAILURE,
+						"Only one group can be specified");
+			}
+			binding->group = 1;
+		}
+
 		// Check for a modifier key
 		uint32_t mod;
 		if ((mod = get_modifier_mask_by_name(split->items[i])) > 0) {
@@ -474,6 +511,8 @@ struct cmd_results *cmd_bind_or_unbind_switch(int argc, char **argv,
 			binding->flags |= BINDING_LOCKED;
 		} else if (strcmp("--no-warn", argv[0]) == 0) {
 			warn = false;
+		} else if (strcmp("--reload", argv[0]) == 0) {
+			binding->flags |= BINDING_RELOAD;
 		} else {
 			break;
 		}
@@ -555,8 +594,20 @@ struct cmd_results *cmd_unbindswitch(int argc, char **argv) {
  * Execute the command associated to a binding
  */
 void seat_execute_command(struct sway_seat *seat, struct sway_binding *binding) {
-	sway_log(SWAY_DEBUG, "running command for binding: %s", binding->command);
+	if (!config->active) {
+		sway_log(SWAY_DEBUG, "deferring command for binding: %s",
+				binding->command);
+		struct sway_binding *deferred = calloc(1, sizeof(struct sway_binding));
+		if (!deferred) {
+			sway_log(SWAY_ERROR, "Failed to allocate deferred binding");
+			return;
+		}
+		memcpy(deferred, binding, sizeof(struct sway_binding));
+		list_add(seat->deferred_bindings, deferred);
+		return;
+	}
 
+	sway_log(SWAY_DEBUG, "running command for binding: %s", binding->command);
 	struct sway_container *con = NULL;
 	if (binding->type == BINDING_MOUSESYM
 			|| binding->type == BINDING_MOUSECODE) {

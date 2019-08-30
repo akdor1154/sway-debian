@@ -45,7 +45,8 @@ the bindsym command.
 Commands are split into several arguments using spaces. You can enclose
 arguments with quotation marks (*"..."* or *'...'*) to add spaces to a single
 argument. You may also run several commands in order by separating each with
-*,* or *;*.
+*,* or *;*. Criteria is retained across commands separated by *,*, but will be
+reset (and allow for new criteria, if desired) for commands separated by a *;*.
 
 Throughout the documentation, *|* is used to distinguish between arguments for
 which you may only select one. *[...]* is used for optional arguments, and
@@ -295,10 +296,10 @@ set|plus|minus <amount>
 *title_format* <format>
 	Sets the format of window titles. The following placeholders may be used:
 
-		%title - The title supplied by the window
-		%app_id - The wayland app ID (applicable to wayland windows only)
-		%class - The X11 classname (applicable to xwayland windows only)
-		%instance - The X11 instance (applicable to xwayland windows only)
+		%title - The title supplied by the window ++
+		%app_id - The wayland app ID (applicable to wayland windows only) ++
+		%class - The X11 classname (applicable to xwayland windows only) ++
+		%instance - The X11 instance (applicable to xwayland windows only) ++
 		%shell - The protocol the window is using (typically xwayland or
 			xdg_shell)
 
@@ -327,16 +328,24 @@ runtime.
 
 		for_window <criteria> move container to output <output>
 
-*bindsym* [--whole-window] [--border] [--exclude-titlebar] [--release] [--locked] [--to-code] [--input-device=<device>] [--no-warn] <key combo> <command>
+*bindsym* [--whole-window] [--border] [--exclude-titlebar] [--release] [--locked] \
+		[--to-code] [--input-device=<device>] [--no-warn] [Group<1-4>+]<key combo> \
+		<command>
 	Binds _key combo_ to execute the sway command _command_ when pressed. You
 	may use XKB key names here (*xev*(1) is a good tool for discovering these).
 	With the flag _--release_, the command is executed when the key combo is
-	released. Unless the flag _--locked_ is set, the command will not be run
-	when a screen locking program is active. If _input-device_ is given, the
-	binding will only be executed for that input device and will be executed
-	instead of any binding that is generic to all devices. By default, if you
-	overwrite a binding, swaynag will give you a warning. To silence this, use
-	the _--no-warn_ flag.
+	released. If _input-device_ is given, the binding will only be executed for
+	that input device and will be executed instead of any binding that is
+	generic to all devices. If a group number is given, then the binding will
+	only be available for that group. By default, if you overwrite a binding,
+	swaynag will give you a warning. To silence this, use the _--no-warn_ flag.
+
+	Unless the flag _--locked_ is set, the command will not be run when a
+	screen locking program is active. If there is a matching binding with
+	and without _--locked_, the one with will be preferred when locked and the
+	one without will be preferred when unlocked. If there are matching bindings
+	and one has both _--input-device_ and _--locked_ and the other has neither,
+	the former will be preferred even when unlocked.
 
 	Bindings to keysyms are layout-dependent. This can be changed with the
 	_--to-code_ flag. In this case, the keysyms will be translated into the
@@ -349,6 +358,9 @@ runtime.
 	values in X11 (1=left, 2=middle, 3=right, 4=scroll up, 5=scroll down,
 	6=scroll left, 7=scroll right, 8=back, 9=forward). For the latter option,
 	you can find the event names using _libinput debug-events_.
+
+	The priority for matching bindings is as follows: input device, group,
+	and locked state.
 
 	_--whole-window_, _--border_, and _--exclude-titlebar_ are mouse-only options
 	which affect the region in which the mouse bindings can be triggered.  By
@@ -369,21 +381,30 @@ runtime.
 		bindsym Mod1+Shift+f exec firefox
 ```
 
-	*bindcode* [--whole-window] [--border] [--exclude-titlebar] [--release] [--locked] [--input-device=<device>] [--no-warn] <code> <command>
+	*bindcode* [--whole-window] [--border] [--exclude-titlebar] [--release] \
+	[--locked] [--input-device=<device>] [--no-warn] [Group<1-4>+]<code> <command>
 	is also available for binding with key/button codes instead of key/button names.
 
-*bindswitch* [--locked] [--no-warn] <switch>:<state> <command>
+*bindswitch* [--locked] [--no-warn] [--reload] <switch>:<state> <command>
 	Binds <switch> to execute the sway command _command_ on state changes.
 	Supported switches are _lid_ (laptop lid) and _tablet_ (tablet mode)
-	switches. Valid values for _state_ are _on_, _off_ and _toggle. These
+	switches. Valid values for _state_ are _on_, _off_ and _toggle_. These
 	switches are on when the device lid is shut and when tablet mode is active
 	respectively. _toggle_ is also supported to run a command both when the
 	switch is toggled on or off.
 
-	Unless the flag _--locked_ is set, the command will not be run
-	when a screen locking program is active. By default, if you
-	overwrite a binding, swaynag will give you a warning. To silence this, use
-	the _--no-warn_ flag.
+	Unless the flag _--locked_ is set, the command will not be run when a
+	screen locking program is active. If there is a matching binding with
+	and without _--locked_, the one with will be preferred when locked and the
+	one without will be preferred when unlocked.
+
+	If the _--reload_ flag is given, the binding will also be executed when
+	the config is reloaded. _toggle_ bindings will not be executed on reload.
+	The _--locked_ flag will operate as normal so if the config is reloaded
+	while locked and _--locked_ is not given, the binding will not be executed.
+
+	By default, if you overwrite a binding, swaynag will give you a warning. To
+	silence this, use the _--no-warn_ flag.
 
 	Example:
 ```
@@ -512,15 +533,17 @@ The default colors are:
 	windows, and right click to resize them. If _inverse_ is specified, left
 	click is used for resizing and right click for moving.
 
-*floating_scroll* up|right|down|left [command]
-	Sets a command to be executed when the mouse wheel is scrolled in the
-	specified direction while holding the floating modifier. Resets the
-	command, when given no arguments.
-
 *focus_follows_mouse* yes|no|always
 	If set to _yes_, moving your mouse over a window will focus that window. If
 	set to _always_, the window under the cursor will always be focused, even
 	after switching between workspaces.
+
+*focus_on_window_activation* smart|urgent|focus|none
+	This option determines what to do when an xwayland client requests
+	window activation. If set to _urgent_, the urgent state will be set
+	for that window. If set to _focus_, the window will become focused.
+	If set to _smart_, the window will become focused only if it is already
+	visible, otherwise the urgent state will be set. Default is _smart_.
 
 *focus_wrapping* yes|no|force
 	This option determines what to do when attempting to focus over the edge
@@ -531,8 +554,14 @@ The default colors are:
 	to the opposite edge of the container, even if there are other containers
 	in the direction. Default is _yes_.
 
-*font* <font>
-	Sets font for use in title bars in Pango format.
+*font* [pango:]<font>
+	Sets font to use for the title bars. To enable support for pango markup,
+	preface the font name with _pango:_. For example, _monospace 10_ is the
+	default font. To enable support for pango markup, _pango:monospace 10_
+	should be used instead. Regardless of whether pango markup is enabled,
+	_font_ should be specified as a pango font description. For more
+	information on pango font descriptions, see
+	https://developer.gnome.org/pango/stable/pango-Fonts.html#pango-font-description-from-string
 
 *titlebar_border_thickness* <thickness>
 	Thickness of the titlebar border in pixels
@@ -636,9 +665,9 @@ The default colors are:
 	Any mark that starts with an underscore will not be drawn even if
 	*show_marks* is yes. The default is _yes_.
 
-*opacity* <value>
-	Set the opacity of the window between 0 (completely transparent) and 1
-	(completely opaque).
+*opacity* [set|plus|minus] <value>
+	Adjusts the opacity of the window between 0 (completely transparent) and
+	1 (completely opaque). If the operation is omitted, _set_ will be used.
 
 *tiling_drag*  enable|disable|toggle
 	Sets whether or not tiling containers can be dragged with the mouse. If
@@ -706,7 +735,7 @@ The default colors are:
 	Specifies that workspace _name_ should be shown on the specified _outputs_.
 	Multiple outputs can be listed and the first available will be used. If the
 	workspace gets placed on an output further down the list and an output that
-	is higher on the list becomes available, the workspace will be move to the
+	is higher on the list becomes available, the workspace will be moved to the
 	higher priority output.
 
 	This command does not affect existing workspaces. To move an existing
@@ -745,7 +774,9 @@ A criteria is a string in the form of, for example:
 
 The string contains one or more (space separated) attribute/value pairs. They
 are used by some commands to choose which views to execute actions on. All
-attributes must match for the criteria to match.
+attributes must match for the criteria to match. Criteria is retained across
+commands separated by a *,*, but will be reset (and allow for new criteria, if
+desired) for commands separated by a *;*.
 
 Criteria may be used with either the *for_window* or *assign* commands to
 specify operations to perform on new views. A criteria may also be used to
@@ -770,17 +801,20 @@ Mark all Firefox windows with "Browser":
 [class="Firefox"] mark Browser
 ```
 
+You may like to use swaymsg -t get_tree for finding the values of these
+properties in practice for your applications.
+
 The following attributes may be matched with:
 
 *app_id*
 	Compare value against the app id. Can be a regular expression. If value is
 	\_\_focused\_\_, then the app id must be the same as that of the currently
-	focused window.
+	focused window. _app_id_ are specific to Wayland applications.
 
 *class*
 	Compare value against the window class. Can be a regular expression. If
 	value is \_\_focused\_\_, then the window class must be the same as that of
-	the currently focused window.
+	the currently focused window. _class_ are specific to X11 applications.
 
 *con_id*
 	Compare against the internal container ID, which you can find via IPC. If

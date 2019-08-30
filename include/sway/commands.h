@@ -47,7 +47,8 @@ struct cmd_results *checkarg(int argc, const char *name,
 		enum expected_args type, int val);
 
 struct cmd_handler *find_handler(char *line, struct cmd_handler *cmd_handlers,
-		int handlers_size);
+		size_t handlers_size);
+
 /**
  * Parse and executes a command.
  *
@@ -236,6 +237,7 @@ sway_cmd bar_colors_cmd_urgent_workspace;
 
 sway_cmd input_cmd_seat;
 sway_cmd input_cmd_accel_profile;
+sway_cmd input_cmd_calibration_matrix;
 sway_cmd input_cmd_click_method;
 sway_cmd input_cmd_drag;
 sway_cmd input_cmd_drag_lock;
@@ -255,11 +257,13 @@ sway_cmd input_cmd_scroll_method;
 sway_cmd input_cmd_tap;
 sway_cmd input_cmd_tap_button_map;
 sway_cmd input_cmd_xkb_capslock;
+sway_cmd input_cmd_xkb_file;
 sway_cmd input_cmd_xkb_layout;
 sway_cmd input_cmd_xkb_model;
 sway_cmd input_cmd_xkb_numlock;
 sway_cmd input_cmd_xkb_options;
 sway_cmd input_cmd_xkb_rules;
+sway_cmd input_cmd_xkb_switch_layout;
 sway_cmd input_cmd_xkb_variant;
 
 sway_cmd output_cmd_background;
@@ -270,6 +274,7 @@ sway_cmd output_cmd_mode;
 sway_cmd output_cmd_position;
 sway_cmd output_cmd_scale;
 sway_cmd output_cmd_subpixel;
+sway_cmd output_cmd_toggle;
 sway_cmd output_cmd_transform;
 
 sway_cmd seat_cmd_attach;
@@ -277,6 +282,7 @@ sway_cmd seat_cmd_cursor;
 sway_cmd seat_cmd_fallback;
 sway_cmd seat_cmd_hide_cursor;
 sway_cmd seat_cmd_pointer_constraint;
+sway_cmd seat_cmd_xcursor_theme;
 
 sway_cmd cmd_ipc_cmd;
 sway_cmd cmd_ipc_events;

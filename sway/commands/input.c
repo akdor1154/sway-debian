@@ -2,12 +2,14 @@
 #include <strings.h>
 #include "sway/commands.h"
 #include "sway/input/input-manager.h"
+#include "sway/input/keyboard.h"
 #include "log.h"
 #include "stringop.h"
 
 // must be in order for the bsearch
 static struct cmd_handler input_handlers[] = {
 	{ "accel_profile", input_cmd_accel_profile },
+	{ "calibration_matrix", input_cmd_calibration_matrix },
 	{ "click_method", input_cmd_click_method },
 	{ "drag", input_cmd_drag },
 	{ "drag_lock", input_cmd_drag_lock },
@@ -26,10 +28,12 @@ static struct cmd_handler input_handlers[] = {
 	{ "scroll_method", input_cmd_scroll_method },
 	{ "tap", input_cmd_tap },
 	{ "tap_button_map", input_cmd_tap_button_map },
+	{ "xkb_file", input_cmd_xkb_file },
 	{ "xkb_layout", input_cmd_xkb_layout },
 	{ "xkb_model", input_cmd_xkb_model },
 	{ "xkb_options", input_cmd_xkb_options },
 	{ "xkb_rules", input_cmd_xkb_rules },
+	{ "xkb_switch_layout", input_cmd_xkb_switch_layout },
 	{ "xkb_variant", input_cmd_xkb_variant },
 };
 
@@ -45,8 +49,8 @@ static struct cmd_handler input_config_handlers[] = {
 static void retranslate_keysyms(struct input_config *input_config) {
 	for (int i = 0; i < config->input_configs->length; ++i) {
 		struct input_config *ic = config->input_configs->items[i];
-		if (ic->xkb_layout) {
-			// this is the first config with xkb_layout
+		if (ic->xkb_layout || ic->xkb_file) {
+			// this is the first config with xkb_layout or xkb_file
 			if (ic->identifier == input_config->identifier) {
 				translate_keysyms(ic);
 			}
@@ -85,9 +89,21 @@ struct cmd_results *cmd_input(int argc, char **argv) {
 			input_handlers, sizeof(input_handlers));
 	}
 
-	if (!res || res->status == CMD_SUCCESS) {
+	if ((!res || res->status == CMD_SUCCESS) &&
+			strcmp(argv[1], "xkb_switch_layout") != 0) {
+		char *error = NULL;
 		struct input_config *ic =
-			store_input_config(config->handler_context.input_config);
+			store_input_config(config->handler_context.input_config, &error);
+		if (!ic) {
+			free_input_config(config->handler_context.input_config);
+			if (res) {
+				free_cmd_results(res);
+			}
+			res = cmd_results_new(CMD_FAILURE, "Failed to compile keymap: %s",
+					error ? error : "(details unavailable)");
+			free(error);
+			return res;
+		}
 
 		input_manager_apply_input_config(ic);
 		retranslate_keysyms(ic);

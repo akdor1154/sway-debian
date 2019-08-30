@@ -54,21 +54,6 @@ struct sway_output *workspace_get_initial_output(const char *name) {
 	return root->outputs->length ? root->outputs->items[0] : root->noop_output;
 }
 
-static void prevent_invalid_outer_gaps(struct sway_workspace *ws) {
-	if (ws->gaps_outer.top < -ws->gaps_inner) {
-		ws->gaps_outer.top = -ws->gaps_inner;
-	}
-	if (ws->gaps_outer.right < -ws->gaps_inner) {
-		ws->gaps_outer.right = -ws->gaps_inner;
-	}
-	if (ws->gaps_outer.bottom < -ws->gaps_inner) {
-		ws->gaps_outer.bottom = -ws->gaps_inner;
-	}
-	if (ws->gaps_outer.left < -ws->gaps_inner) {
-		ws->gaps_outer.left = -ws->gaps_inner;
-	}
-}
-
 struct sway_workspace *workspace_create(struct sway_output *output,
 		const char *name) {
 	if (output == NULL) {
@@ -111,9 +96,6 @@ struct sway_workspace *workspace_create(struct sway_output *output,
 			if (wsc->gaps_inner != INT_MIN) {
 				ws->gaps_inner = wsc->gaps_inner;
 			}
-			// Since default outer gaps can be smaller than the negation of
-			// workspace specific inner gaps, check outer gaps again
-			prevent_invalid_outer_gaps(ws);
 
 			// Add output priorities
 			for (int i = 0; i < wsc->outputs->length; ++i) {
@@ -173,9 +155,19 @@ void workspace_consider_destroy(struct sway_workspace *ws) {
 	if (ws->tiling->length || ws->floating->length) {
 		return;
 	}
+
 	if (ws->output && output_get_active_workspace(ws->output) == ws) {
 		return;
 	}
+
+	struct sway_seat *seat;
+	wl_list_for_each(seat, &server.input->seats, link) {
+		struct sway_node *node = seat_get_focus_inactive(seat, &root->node);
+		if (node == &ws->node) {
+			return;
+		}
+	}
+
 	workspace_begin_destroy(ws);
 }
 
@@ -212,9 +204,9 @@ static void workspace_name_from_binding(const struct sway_binding * binding,
 	char *name = NULL;
 
 	// workspace n
-	char *cmd = argsep(&cmdlist, " ");
+	char *cmd = argsep(&cmdlist, " ", NULL);
 	if (cmdlist) {
-		name = argsep(&cmdlist, ",;");
+		name = argsep(&cmdlist, ",;", NULL);
 	}
 
 	// TODO: support "move container to workspace" bindings as well
@@ -514,7 +506,7 @@ bool workspace_is_empty(struct sway_workspace *ws) {
 }
 
 static int find_output(const void *id1, const void *id2) {
-	return strcmp(id1, id2) ? 0 : 1;
+	return strcmp(id1, id2);
 }
 
 void workspace_output_raise_priority(struct sway_workspace *ws,
@@ -700,28 +692,7 @@ void workspace_insert_tiling(struct sway_workspace *workspace,
 	node_set_dirty(&con->node);
 }
 
-void workspace_remove_gaps(struct sway_workspace *ws) {
-	if (ws->current_gaps.top == 0 && ws->current_gaps.right == 0 &&
-			ws->current_gaps.bottom == 0 && ws->current_gaps.left == 0) {
-		return;
-	}
-
-	ws->width += ws->current_gaps.left + ws->current_gaps.right;
-	ws->height += ws->current_gaps.top + ws->current_gaps.bottom;
-	ws->x -= ws->current_gaps.left;
-	ws->y -= ws->current_gaps.top;
-
-	ws->current_gaps.top = 0;
-	ws->current_gaps.right = 0;
-	ws->current_gaps.bottom = 0;
-	ws->current_gaps.left = 0;
-}
-
 void workspace_add_gaps(struct sway_workspace *ws) {
-	if (ws->current_gaps.top > 0 || ws->current_gaps.right > 0 ||
-			ws->current_gaps.bottom > 0 || ws->current_gaps.left > 0) {
-		return;
-	}
 	if (config->smart_gaps) {
 		struct sway_seat *seat = input_manager_get_default_seat();
 		struct sway_container *focus =
@@ -730,19 +701,38 @@ void workspace_add_gaps(struct sway_workspace *ws) {
 			focus = seat_get_focus_inactive_view(seat, &focus->node);
 		}
 		if (focus && focus->view && view_is_only_visible(focus->view)) {
+			ws->current_gaps.top = 0;
+			ws->current_gaps.right = 0;
+			ws->current_gaps.bottom = 0;
+			ws->current_gaps.left = 0;
 			return;
 		}
 	}
 
 	ws->current_gaps = ws->gaps_outer;
-	if (ws->layout == L_TABBED || ws->layout == L_STACKED) {
-		// We have to add inner gaps for this, because children of tabbed and
-		// stacked containers don't apply their own gaps - they assume the
-		// tabbed/stacked container is using gaps.
-		ws->current_gaps.top += ws->gaps_inner;
-		ws->current_gaps.right += ws->gaps_inner;
-		ws->current_gaps.bottom += ws->gaps_inner;
-		ws->current_gaps.left += ws->gaps_inner;
+	// Add inner gaps and make sure we don't turn out negative
+	ws->current_gaps.top = fmax(0, ws->current_gaps.top + ws->gaps_inner);
+	ws->current_gaps.right = fmax(0, ws->current_gaps.right + ws->gaps_inner);
+	ws->current_gaps.bottom = fmax(0, ws->current_gaps.bottom + ws->gaps_inner);
+	ws->current_gaps.left = fmax(0, ws->current_gaps.left + ws->gaps_inner);
+
+	// Now that we have the total gaps calculated we may need to clamp them in
+	// case they've made the available area too small
+	if (ws->width - ws->current_gaps.left - ws->current_gaps.right < MIN_SANE_W
+			&& ws->current_gaps.left + ws->current_gaps.right > 0) {
+		int total_gap = fmax(0, ws->width - MIN_SANE_W);
+		double left_gap_frac = ((double)ws->current_gaps.left /
+			((double)ws->current_gaps.left + (double)ws->current_gaps.right));
+		ws->current_gaps.left = left_gap_frac * total_gap;
+		ws->current_gaps.right = total_gap - ws->current_gaps.left;
+	}
+	if (ws->height - ws->current_gaps.top - ws->current_gaps.bottom < MIN_SANE_H
+			&& ws->current_gaps.top + ws->current_gaps.bottom > 0) {
+		int total_gap = fmax(0, ws->height - MIN_SANE_H);
+		double top_gap_frac = ((double) ws->current_gaps.top /
+			((double)ws->current_gaps.top + (double)ws->current_gaps.bottom));
+		ws->current_gaps.top = top_gap_frac * total_gap;
+		ws->current_gaps.bottom = total_gap - ws->current_gaps.top;
 	}
 
 	ws->x += ws->current_gaps.left;
@@ -763,6 +753,13 @@ struct sway_container *workspace_split(struct sway_workspace *workspace,
 	struct sway_container *middle = workspace_wrap_children(workspace);
 	workspace->layout = layout;
 	middle->layout = old_layout;
+
+	struct sway_seat *seat;
+	wl_list_for_each(seat, &server.input->seats, link) {
+		if (seat_get_focus(seat) == &workspace->node) {
+			seat_set_focus(seat, &middle->node);
+		}
+	}
 
 	return middle;
 }

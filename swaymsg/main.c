@@ -103,6 +103,7 @@ static const char *pretty_type_name(const char *name) {
 		{ "tablet_pad", "Tablet pad" },
 		{ "tablet_tool", "Tablet tool" },
 		{ "touch", "Touch" },
+		{ "switch", "Switch" },
 	};
 
 	for (size_t i = 0; i < sizeof(type_names) / sizeof(type_names[0]); ++i) {
@@ -474,7 +475,7 @@ int main(int argc, char **argv) {
 		ret = 1;
 	} else {
 		if (!success(obj, true)) {
-			ret = 1;
+			ret = 2;
 		}
 		if (!quiet && (type != IPC_SUBSCRIBE  || ret != 0)) {
 			if (raw) {

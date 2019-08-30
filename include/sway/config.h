@@ -39,6 +39,7 @@ enum binding_flags {
 	BINDING_CONTENTS=8,  // mouse only; trigger on container contents
 	BINDING_TITLEBAR=16, // mouse only; trigger on container titlebar
 	BINDING_CODE=32,     // keyboard only; convert keysyms into keycodes
+	BINDING_RELOAD=62,   // switch only; (re)trigger binding on reload
 };
 
 /**
@@ -52,6 +53,7 @@ struct sway_binding {
 	list_t *keys; // sorted in ascending order
 	list_t *syms; // sorted in ascending order; NULL if BINDING_CODE is not set
 	uint32_t modifiers;
+	xkb_layout_index_t group;
 	char *command;
 };
 
@@ -101,6 +103,11 @@ struct input_config_mapped_from_region {
 	bool mm;
 };
 
+struct calibration_matrix {
+	bool configured;
+	float matrix[6];
+};
+
 /**
  * options for input devices
  */
@@ -109,6 +116,7 @@ struct input_config {
 	const char *input_type;
 
 	int accel_profile;
+	struct calibration_matrix calibration_matrix;
 	int click_method;
 	int drag;
 	int drag_lock;
@@ -131,6 +139,9 @@ struct input_config {
 	char *xkb_options;
 	char *xkb_rules;
 	char *xkb_variant;
+	char *xkb_file;
+
+	bool xkb_file_is_set;
 
 	int xkb_numlock;
 	int xkb_capslock;
@@ -165,6 +176,10 @@ struct seat_config {
 	list_t *attachments; // list of seat_attachment configs
 	int hide_cursor_timeout;
 	enum seat_config_allow_constrain allow_constrain;
+	struct {
+		char *name;
+		int size;
+	} xcursor_theme;
 };
 
 enum config_dpms {
@@ -216,6 +231,10 @@ struct workspace_config {
 };
 
 struct bar_config {
+	char *swaybar_command;
+	struct wl_client *client;
+	struct wl_listener client_destroy;
+
 	/**
 	 * One of "dock", "hide", "invisible"
 	 *
@@ -243,7 +262,6 @@ struct bar_config {
 	list_t *bindings;
 	char *status_command;
 	bool pango_markup;
-	char *swaybar_command;
 	char *font;
 	int height; // -1 not defined
 	bool workspace_buttons;
@@ -254,7 +272,6 @@ struct bar_config {
 	bool binding_mode_indicator;
 	bool verbose;
 	struct side_gaps gaps;
-	pid_t pid;
 	int status_padding;
 	int status_edge_padding;
 	struct {
@@ -553,6 +570,11 @@ bool read_config(FILE *file, struct sway_config *config,
 void run_deferred_commands(void);
 
 /**
+ * Run the binding commands that were deferred when initializing the inputs
+ */
+void run_deferred_bindings(void);
+
+/**
  * Adds a warning entry to the swaynag instance used for errors.
  */
 void config_add_swaynag_warning(char *fmt, ...);
@@ -575,7 +597,7 @@ struct input_config *new_input_config(const char* identifier);
 
 void merge_input_config(struct input_config *dst, struct input_config *src);
 
-struct input_config *store_input_config(struct input_config *ic);
+struct input_config *store_input_config(struct input_config *ic, char **error);
 
 void input_config_fill_rule_names(struct input_config *ic,
 		struct xkb_rule_names *rules);

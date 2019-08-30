@@ -2,7 +2,7 @@
 #define _SWAY_OUTPUT_H
 #include <time.h>
 #include <unistd.h>
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 #include <wlr/types/wlr_box.h>
 #include <wlr/types/wlr_output.h>
 #include "config.h"
@@ -82,7 +82,11 @@ void output_damage_box(struct sway_output *output, struct wlr_box *box);
 void output_damage_whole_container(struct sway_output *output,
 	struct sway_container *con);
 
+// this ONLY includes the enabled outputs
 struct sway_output *output_by_name_or_id(const char *name_or_id);
+
+// this includes all the outputs, including disabled ones
+struct sway_output *all_output_by_name_or_id(const char *name_or_id);
 
 void output_sort_workspaces(struct sway_output *output);
 
@@ -149,5 +153,11 @@ void premultiply_alpha(float color[4], float opacity);
 void scale_box(struct wlr_box *box, float scale);
 
 enum wlr_direction opposite_direction(enum wlr_direction d);
+
+void handle_output_layout_change(struct wl_listener *listener, void *data);
+
+void handle_output_manager_apply(struct wl_listener *listener, void *data);
+
+void handle_output_manager_test(struct wl_listener *listener, void *data);
 
 #endif

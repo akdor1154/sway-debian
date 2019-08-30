@@ -111,8 +111,6 @@ struct cmd_results *cmd_bar(int argc, char **argv) {
 			// Set current bar
 			config->current_bar = bar;
 			sway_log(SWAY_DEBUG, "Creating bar %s", bar->id);
-		} else {
-			return cmd_results_new(CMD_FAILURE, "No bar defined.");
 		}
 	}
 

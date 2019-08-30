@@ -1,13 +1,14 @@
 #ifndef _SWAY_SERVER_H
 #define _SWAY_SERVER_H
 #include <stdbool.h>
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 #include <wlr/backend.h>
 #include <wlr/backend/session.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
+#include <wlr/types/wlr_output_management_v1.h>
 #include <wlr/types/wlr_presentation_time.h>
 #include <wlr/types/wlr_relative_pointer_v1.h>
 #include <wlr/types/wlr_server_decoration.h>
@@ -33,6 +34,7 @@ struct sway_server {
 	struct sway_input_manager *input;
 
 	struct wl_listener new_output;
+	struct wl_listener output_layout_change;
 
 	struct wlr_idle *idle;
 	struct sway_idle_inhibit_manager_v1 *idle_inhibit_manager_v1;
@@ -66,6 +68,10 @@ struct sway_server {
 
 	struct wlr_pointer_constraints_v1 *pointer_constraints;
 	struct wl_listener pointer_constraint;
+
+	struct wlr_output_manager_v1 *output_manager_v1;
+	struct wl_listener output_manager_apply;
+	struct wl_listener output_manager_test;
 
 	size_t txn_timeout_ms;
 	list_t *transactions;

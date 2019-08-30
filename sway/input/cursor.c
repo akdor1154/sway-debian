@@ -39,15 +39,12 @@ static struct wlr_surface *layer_surface_at(struct sway_output *output,
 		struct wl_list *layer, double ox, double oy, double *sx, double *sy) {
 	struct sway_layer_surface *sway_layer;
 	wl_list_for_each_reverse(sway_layer, layer, link) {
-		struct wlr_surface *wlr_surface =
-			sway_layer->layer_surface->surface;
 		double _sx = ox - sway_layer->geo.x;
 		double _sy = oy - sway_layer->geo.y;
-		// TODO: Test popups/subsurfaces
-		if (wlr_surface_point_accepts_input(wlr_surface, _sx, _sy)) {
-			*sx = _sx;
-			*sy = _sy;
-			return wlr_surface;
+		struct wlr_surface *sub = wlr_layer_surface_v1_surface_at(
+			sway_layer->layer_surface, _sx, _sy, sx, sy);
+		if (sub) {
+			return sub;
 		}
 	}
 	return NULL;
@@ -174,15 +171,24 @@ void cursor_rebase_all(void) {
 	}
 }
 
-static int hide_notify(void *data) {
-	struct sway_cursor *cursor = data;
+static void cursor_hide(struct sway_cursor *cursor) {
 	wlr_cursor_set_image(cursor->cursor, NULL, 0, 0, 0, 0, 0, 0);
 	cursor->hidden = true;
 	wlr_seat_pointer_clear_focus(cursor->seat->wlr_seat);
+}
+
+static int hide_notify(void *data) {
+	struct sway_cursor *cursor = data;
+	cursor_hide(cursor);
 	return 1;
 }
 
-int cursor_get_timeout(struct sway_cursor *cursor){
+int cursor_get_timeout(struct sway_cursor *cursor) {
+	if (cursor->pressed_button_count > 0) {
+		// Do not hide cursor unless all buttons are released
+		return 0;
+	}
+
 	struct seat_config *sc = seat_get_config(cursor->seat);
 	if (!sc) {
 		sc = seat_get_config_by_name("*");
@@ -295,7 +301,6 @@ void dispatch_cursor_button(struct sway_cursor *cursor,
 static void handle_cursor_button(struct wl_listener *listener, void *data) {
 	struct sway_cursor *cursor = wl_container_of(listener, cursor, button);
 	struct wlr_event_pointer_button *event = data;
-	cursor_handle_activity(cursor);
 
 	if (event->state == WLR_BUTTON_PRESSED) {
 		cursor->pressed_button_count++;
@@ -307,6 +312,7 @@ static void handle_cursor_button(struct wl_listener *listener, void *data) {
 		}
 	}
 
+	cursor_handle_activity(cursor);
 	dispatch_cursor_button(cursor, event->device,
 			event->time_msec, event->button, event->state);
 	transaction_commit_dirty();
@@ -358,7 +364,7 @@ static void handle_touch_down(struct wl_listener *listener, void *data) {
 	if (seat_is_input_allowed(seat, surface)) {
 		wlr_seat_touch_notify_down(wlr_seat, surface, event->time_msec,
 				event->touch_id, sx, sy);
-		cursor_set_image(cursor, NULL, NULL);
+		cursor_hide(cursor);
 	}
 }
 

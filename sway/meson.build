@@ -21,6 +21,9 @@ sway_sources = files(
 	'desktop/xdg_shell.c',
 
 	'input/input-manager.c',
+	'input/cursor.c',
+	'input/keyboard.c',
+	'input/libinput.c',
 	'input/seat.c',
 	'input/seatop_default.c',
 	'input/seatop_down.c',
@@ -28,8 +31,6 @@ sway_sources = files(
 	'input/seatop_move_tiling.c',
 	'input/seatop_resize_floating.c',
 	'input/seatop_resize_tiling.c',
-	'input/cursor.c',
-	'input/keyboard.c',
 	'input/switch.c',
 
 	'config/bar.c',
@@ -89,6 +90,7 @@ sway_sources = files(
 	'commands/seat/fallback.c',
 	'commands/seat/hide_cursor.c',
 	'commands/seat/pointer_constraint.c',
+	'commands/seat/xcursor_theme.c',
 	'commands/set.c',
 	'commands/show_marks.c',
 	'commands/smart_borders.c',
@@ -139,6 +141,7 @@ sway_sources = files(
 	'commands/bar/wrap_scroll.c',
 
 	'commands/input/accel_profile.c',
+	'commands/input/calibration_matrix.c',
 	'commands/input/click_method.c',
 	'commands/input/drag.c',
 	'commands/input/drag_lock.c',
@@ -158,11 +161,13 @@ sway_sources = files(
 	'commands/input/tap.c',
 	'commands/input/tap_button_map.c',
 	'commands/input/xkb_capslock.c',
+	'commands/input/xkb_file.c',
 	'commands/input/xkb_layout.c',
 	'commands/input/xkb_model.c',
 	'commands/input/xkb_numlock.c',
 	'commands/input/xkb_options.c',
 	'commands/input/xkb_rules.c',
+	'commands/input/xkb_switch_layout.c',
 	'commands/input/xkb_variant.c',
 
 	'commands/output/background.c',
@@ -173,6 +178,7 @@ sway_sources = files(
 	'commands/output/position.c',
 	'commands/output/scale.c',
 	'commands/output/subpixel.c',
+	'commands/output/toggle.c',
 	'commands/output/transform.c',
 
 	'tree/arrange.c',

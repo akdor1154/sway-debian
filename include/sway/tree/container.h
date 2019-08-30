@@ -88,6 +88,10 @@ struct sway_container {
 	double saved_x, saved_y;
 	double saved_width, saved_height;
 
+	// The share of the space of parent container this container occupies
+	double width_fraction;
+	double height_fraction;
+
 	// These are in layout coordinates.
 	double content_x, content_y;
 	int content_width, content_height;
@@ -111,14 +115,6 @@ struct sway_container {
 	bool border_bottom;
 	bool border_left;
 	bool border_right;
-
-	// The gaps currently applied to the container.
-	struct {
-		int top;
-		int right;
-		int bottom;
-		int left;
-	} current_gaps;
 
 	struct sway_workspace *workspace; // NULL when hidden in the scratchpad
 	struct sway_container *parent;    // NULL if container in root of workspace
@@ -292,10 +288,6 @@ struct sway_output *container_get_effective_output(struct sway_container *con);
 
 void container_discover_outputs(struct sway_container *con);
 
-void container_remove_gaps(struct sway_container *container);
-
-void container_add_gaps(struct sway_container *container);
-
 enum sway_container_layout container_parent_layout(struct sway_container *con);
 
 enum sway_container_layout container_current_parent_layout(
@@ -325,6 +317,8 @@ void container_detach(struct sway_container *child);
 
 void container_replace(struct sway_container *container,
 		struct sway_container *replacement);
+
+void container_swap(struct sway_container *con1, struct sway_container *con2);
 
 struct sway_container *container_split(struct sway_container *child,
 		enum sway_container_layout layout);

@@ -205,6 +205,9 @@ following properties:
 |- active
 :  boolean
 :  Whether this output is active/enabled
+|- dpms
+:  boolean
+:  Whether this output is on/off (via DPMS)
 |- primary
 :  boolean
 :  For i3 compatibility, this will be false. It does not make sense in Wayland
@@ -1037,7 +1040,13 @@ following properties:
    _tablet\_tool_, _tablet\_pad_, or _switch_
 |- xkb_active_layout_name
 :  string
-:  (Only keyboards) The active keyboard layout in use
+:  (Only keyboards) The name of the active keyboard layout in use
+|- xkb_layout_names
+:  array
+:  (Only keyboards) A list a layout names configured for the keyboard
+|- xkb_active_layout_index
+:  integer
+:  (Only keyboards) The index of the active keyboard layout in use
 |- libinput
 :  object
 :  (Only libinput devices) An object describing the current device settings.
@@ -1098,6 +1107,10 @@ following properties will be included for devices that support them:
 |- dwt
 :  string
 :  Whether disable-while-typing is enabled. It can be _enabled_ or _disabled_
+|- calibration_matrix
+:  array
+:  An array of 6 floats representing the calibration matrix for absolute
+   devices such as touchscreens
 
 
 *Example Reply:*
@@ -1358,6 +1371,9 @@ available:
 |- 0x80000014
 :  bar_status_update
 :  Send when the visibility of a bar should change due to a modifier
+|- 0x80000015
+:  input
+:  Sent when something related to input devices changes
 
 
 ## 0x80000000. WORKSPACE
@@ -1686,6 +1702,58 @@ event is a single object with the following properties:
 {
 	"id": "bar-0",
 	"visible_by_modifier": true
+}
+```
+
+## 0x80000015. INPUT
+
+Sent when something related to the input devices changes. The event is a single
+object with the following properties:
+
+[- *PROPERTY*
+:- *DATA TYPE*
+:- *DESCRIPTION*
+|- change
+:  string
+:[ What has changed
+|- input
+:  object
+:  An object representing the input that is identical the ones GET_INPUTS gives
+
+The following change types are currently available:
+[- *TYPE*
+:- *DESCRIPTION*
+|- added
+:[ The input device became available
+|- removed
+:  The input device is no longer available
+|- xkb_keymap
+:  (Keyboards only) The keymap for the keyboard has changed
+|- xkb_layout
+:  (Keyboards only) The effective layout in the keymap has changed
+|- libinput_config
+:  (libinput device only) A libinput config option for the device changed
+
+*Example Event:*
+```
+{
+	"change": "xkb_layout",
+	"input": {
+		"identifier": "1:1:AT_Translated_Set_2_keyboard",
+		"name": "AT Translated Set 2 keyboard",
+		"vendor": 1,
+		"product": 1,
+		"type": "keyboard",
+		"xkb_layout_names": [
+			"English (US)",
+			"English (Dvorak)"
+		],
+		"xkb_active_layout_index": 1,
+		"xkb_active_layout_name": "English (Dvorak)",
+		"libinput": {
+			"send_events": "enabled"
+		}
+	}
 }
 ```
 

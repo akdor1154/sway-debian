@@ -44,6 +44,11 @@ on top of the existing device configurations.
 For more information on these xkb configuration options, see
 *xkeyboard-config*(7).
 
+*input* <identifier> xkb_file <file_name>
+	Sets all xkb configurations from a complete .xkb file. This file can be
+	dumped from _xkbcomp $DISPLAY keymap.xkb_. This setting overrides
+	xkb_layout, xkb_model, xkb_options, xkb_rules, and xkb_variant settings.
+
 *input* <identifier> xkb_layout <layout_name>
 	Sets the layout of the keyboard like _us_ or _de_.
 
@@ -56,6 +61,11 @@ For more information on these xkb configuration options, see
 
 *input* <identifier> xkb_rules <rules>
 	Sets files of rules to be used for keyboard mapping composition.
+
+*input* <identifier> xkb_switch_layout <index>
+	Changes the active keyboard layout index. This can be used when multiple
+	layouts are configured with `xkb_layout`. A list of layouts you can switch
+	between can be obtained with `swaymsg -t get_inputs`.
 
 *input* <identifier> xkb_variant <variant>
 	Sets the variant of the keyboard like _dvorak_ or _colemak_.
@@ -91,6 +101,9 @@ The following commands may only be used in the configuration file.
 
 *input* <identifier> accel_profile adaptive|flat
 	Sets the pointer acceleration profile for the specified input device.
+
+*input* <identifier> calibration_matrix <6 space-separated floating point values>
+	Sets the calibtration matrix.
 
 *input* <identifier> click_method none|button_areas|clickfinger
 	Changes the click method for the specified device.
@@ -205,6 +218,12 @@ correct seat.
 	Enables or disables the ability for clients to capture the cursor (enabled
 	by default) for the seat. This is primarily useful for video games. The
 	"escape" command can be used at runtime to escape from a captured client.
+
+*seat* <name> xcursor_theme <theme> [<size>]
+	Override the system default XCursor theme. The default seat's
+	(_seat0_) theme is also used as the default cursor theme in
+	XWayland, and exported through the _XCURSOR_THEME_ and
+	_XCURSOR_SIZE_ environment variables.
 
 # SEE ALSO
 

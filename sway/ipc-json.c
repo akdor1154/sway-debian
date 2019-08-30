@@ -162,6 +162,8 @@ static void ipc_json_describe_output(struct sway_output *output,
 	struct wlr_output *wlr_output = output->wlr_output;
 	json_object_object_add(object, "type", json_object_new_string("output"));
 	json_object_object_add(object, "active", json_object_new_boolean(true));
+	json_object_object_add(object, "dpms",
+			json_object_new_boolean(output->wlr_output->enabled));
 	json_object_object_add(object, "primary", json_object_new_boolean(false));
 	json_object_object_add(object, "layout", json_object_new_string("output"));
 	json_object_object_add(object, "orientation",
@@ -233,6 +235,7 @@ json_object *ipc_json_describe_disabled_output(struct sway_output *output) {
 	json_object_object_add(object, "name",
 			json_object_new_string(wlr_output->name));
 	json_object_object_add(object, "active", json_object_new_boolean(false));
+	json_object_object_add(object, "dpms", json_object_new_boolean(false));
 	json_object_object_add(object, "primary", json_object_new_boolean(false));
 	json_object_object_add(object, "make",
 			json_object_new_string(wlr_output->make));
@@ -795,6 +798,18 @@ static json_object *describe_libinput_device(struct libinput_device *device) {
 		json_object_object_add(object, "dwt", json_object_new_string(dwt));
 	}
 
+	if (libinput_device_config_calibration_has_matrix(device)) {
+		float matrix[6];
+		libinput_device_config_calibration_get_matrix(device, matrix);
+		struct json_object* array = json_object_new_array();
+		struct json_object* x;
+		for (int i = 0; i < 6; i++) {
+			x = json_object_new_double(matrix[i]);
+			json_object_array_add(array, x);
+		}
+		json_object_object_add(object, "calibration_matrix", array);
+	}
+
 	return object;
 }
 
@@ -821,19 +836,24 @@ json_object *ipc_json_describe_input(struct sway_input_device *device) {
 		struct wlr_keyboard *keyboard = device->wlr_device->keyboard;
 		struct xkb_keymap *keymap = keyboard->keymap;
 		struct xkb_state *state = keyboard->xkb_state;
+
+		json_object *layouts_arr = json_object_new_array();
+		json_object_object_add(object, "xkb_layout_names", layouts_arr);
+
 		xkb_layout_index_t num_layouts = xkb_keymap_num_layouts(keymap);
 		xkb_layout_index_t layout_idx;
 		for (layout_idx = 0; layout_idx < num_layouts; layout_idx++) {
-			bool is_active =
-				xkb_state_layout_index_is_active(state,
-						layout_idx,
-						XKB_STATE_LAYOUT_EFFECTIVE);
+			const char *layout = xkb_keymap_layout_get_name(keymap, layout_idx);
+			json_object_array_add(layouts_arr,
+				layout ? json_object_new_string(layout) : NULL);
+
+			bool is_active = xkb_state_layout_index_is_active(state,
+				layout_idx, XKB_STATE_LAYOUT_EFFECTIVE);
 			if (is_active) {
-				const char *layout =
-					xkb_keymap_layout_get_name(keymap, layout_idx);
+				json_object_object_add(object, "xkb_active_layout_index",
+					json_object_new_int(layout_idx));
 				json_object_object_add(object, "xkb_active_layout_name",
-						layout ? json_object_new_string(layout) : NULL);
-				break;
+					layout ? json_object_new_string(layout) : NULL);
 			}
 		}
 	}

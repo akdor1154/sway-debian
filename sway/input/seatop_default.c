@@ -241,7 +241,7 @@ static void handle_button(struct sway_seat *seat, uint32_t time_msec,
 	bool is_floating_or_child = cont && container_is_floating_or_child(cont);
 	bool is_fullscreen_or_child = cont && container_is_fullscreen_or_child(cont);
 	enum wlr_edges edge = cont ? find_edge(cont, cursor) : WLR_EDGE_NONE;
-	enum wlr_edges resize_edge = edge ?
+	enum wlr_edges resize_edge = cont && edge ?
 		find_resize_edge(cont, cursor) : WLR_EDGE_NONE;
 	bool on_border = edge != WLR_EDGE_NONE;
 	bool on_contents = cont && !on_border && surface;
@@ -334,8 +334,7 @@ static void handle_button(struct sway_seat *seat, uint32_t time_msec,
 	if (cont && is_floating_or_child && !is_fullscreen_or_child &&
 			state == WLR_BUTTON_PRESSED) {
 		uint32_t btn_move = config->floating_mod_inverse ? BTN_RIGHT : BTN_LEFT;
-		if (button == btn_move && state == WLR_BUTTON_PRESSED &&
-				(mod_pressed || on_titlebar)) {
+		if (button == btn_move && (mod_pressed || on_titlebar)) {
 			while (cont->parent) {
 				cont = cont->parent;
 			}

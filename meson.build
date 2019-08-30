@@ -1,7 +1,7 @@
 project(
 	'sway',
 	'c',
-	version: '1.0',
+	version: '1.2',
 	license: 'MIT',
 	meson_version: '>=0.48.0',
 	default_options: [
@@ -13,9 +13,6 @@ project(
 
 add_project_arguments(
 	[
-		'-DSWAY_SRC_DIR="@0@"'.format(meson.current_source_dir()),
-
-		'-DWL_HIDE_DEPRECATED',
 		'-DWLR_USE_UNSTABLE',
 
 		'-Wno-unused-parameter',
@@ -107,6 +104,7 @@ if scdoc.found()
 		'sway/sway-input.5.scd',
 		'sway/sway-ipc.7.scd',
 		'sway/sway-output.5.scd',
+		'swaybar/swaybar-protocol.7.scd',
 		'swaymsg/swaymsg.1.scd',
 		'swaynag/swaynag.1.scd',
 		'swaynag/swaynag.5.scd',
@@ -140,6 +138,44 @@ if git.found()
 	endif
 endif
 add_project_arguments('-DSWAY_VERSION=@0@'.format(version), language: 'c')
+
+# Compute the relative path used by compiler invocations.
+source_root = meson.current_source_dir().split('/')
+build_root = meson.build_root().split('/')
+relative_dir_parts = []
+i = 0
+in_prefix = true
+foreach p : build_root
+	if i >= source_root.length() or not in_prefix or p != source_root[i]
+		in_prefix = false
+		relative_dir_parts += '..'
+	endif
+	i += 1
+endforeach
+i = 0
+in_prefix = true
+foreach p : source_root
+	if i >= build_root.length() or not in_prefix or build_root[i] != p
+		in_prefix = false
+		relative_dir_parts += p
+	endif
+	i += 1
+endforeach
+relative_dir = join_paths(relative_dir_parts) + '/'
+
+# Strip relative path prefixes from the code if possible, otherwise hide them.
+if cc.has_argument('-fmacro-prefix-map=/prefix/to/hide=')
+	add_project_arguments(
+		'-fmacro-prefix-map=@0@='.format(relative_dir),
+		language: 'c',
+	)
+else
+	add_project_arguments(
+		'-DSWAY_REL_SRC_DIR="@0@"'.format(relative_dir),
+		language: 'c',
+	)
+endif
+
 
 sway_inc = include_directories('include')
 
