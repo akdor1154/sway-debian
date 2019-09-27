@@ -1,6 +1,6 @@
 sway (1.2-1) experimental; urgency=medium
 
-  * New upstream version
+  * New upstream version (Closes: #940862)
   * d/control:
     - Bump version of wlroots build dependency to 0.7.0-2
       (new upstream version need wlroots 0.7.0)
@@ -17,7 +17,7 @@ sway (1.2-1) experimental; urgency=medium
   * d/gitlab-ci.yml:
     - Added configuration file for gitlab ci
 
- -- Birger Schacht <birger@rantanplan.org>  Fri, 27 Sep 2019 08:44:54 +0200
+ -- Birger Schacht <birger@rantanplan.org>  Fri, 27 Sep 2019 08:58:00 +0200
 
 sway (1.1.1-1) experimental; urgency=medium
 
