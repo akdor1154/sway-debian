@@ -4,16 +4,20 @@ sway (1.2-1) experimental; urgency=medium
   * d/control:
     - Bump version of wlroots build dependency to 0.7.0-2
       (new upstream version need wlroots 0.7.0)
-    - Bump standards version to 4.4.0
+    - Bump standards version to 4.4.0 (no changes required to
+      make package compliant)
     - Set maintainer field to new team address and add nicoo to
       uploaders
   * d/patches:
-    - Drop patch setting the project version
+    - Drop patch setting the project version - upstream fixed
+      it in meson.build
   * d/rules:
     - Set DEB_CFLAGS_MAINT_APPEND so we don't fail on deprecation warnings
       This is a workaround for https://github.com/swaywm/sway/issues/4553
+  * d/gitlab-ci.yml:
+    - Added configuration file for gitlab ci
 
- -- Birger Schacht <birger@rantanplan.org>  Thu, 26 Sep 2019 14:16:23 +0200
+ -- Birger Schacht <birger@rantanplan.org>  Fri, 27 Sep 2019 08:44:54 +0200
 
 sway (1.1.1-1) experimental; urgency=medium
 
