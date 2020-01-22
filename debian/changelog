@@ -5,6 +5,8 @@ sway (1.4-1) unstable; urgency=medium
     - Bump version of wlroots build dependency to 0.10.0-1
   * d/patches:
     - Update 0001-Install-zsh-completions-into-the-correct-directory.patch
+    - Replace 0002-Replace-urxvt-with-x-terminal-emulator.patch with
+      0002-Replace-default-terminal-with-x-terminal-emulator.patch
 
  -- Birger Schacht <birger@rantanplan.org>  Wed, 22 Jan 2020 21:06:54 +0100
 
