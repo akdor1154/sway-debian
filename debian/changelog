@@ -1,6 +1,8 @@
 sway (1.4-1) unstable; urgency=medium
 
   * New upstream version
+  * d/control:
+    - Bump version of wlroots build dependency to 0.10.0-1
 
  -- Birger Schacht <birger@rantanplan.org>  Wed, 22 Jan 2020 21:06:54 +0100
 
