@@ -1,6 +1,6 @@
 sway (1.4-1) unstable; urgency=medium
 
-  * New upstream version
+  * New upstream version (Closes: #949984)
   * d/control:
     - Bump version of wlroots build dependency to 0.10.0-1
   * d/patches:
@@ -10,7 +10,7 @@ sway (1.4-1) unstable; urgency=medium
   * d/sway.install
     - Update path of fish completions
 
- -- Birger Schacht <birger@rantanplan.org>  Wed, 22 Jan 2020 21:06:54 +0100
+ -- Birger Schacht <birger@rantanplan.org>  Tue, 28 Jan 2020 22:06:38 +0100
 
 sway (1.2-1) experimental; urgency=medium
 
