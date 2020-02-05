@@ -3,6 +3,7 @@ sway (1.4-1) unstable; urgency=medium
   * New upstream version (Closes: #949984)
   * d/control:
     - Bump version of wlroots build dependency to 0.10.0
+    - Bump standards version to 4.5.0 (no changes required)
   * d/patches:
     - Update 0001-Install-zsh-completions-into-the-correct-directory.patch
     - Replace 0002-Replace-urxvt-with-x-terminal-emulator.patch with
@@ -10,7 +11,7 @@ sway (1.4-1) unstable; urgency=medium
   * d/sway.install
     - Update path of fish completions
 
- -- Birger Schacht <birger@rantanplan.org>  Wed, 05 Feb 2020 09:31:23 +0100
+ -- Birger Schacht <birger@rantanplan.org>  Wed, 05 Feb 2020 09:32:26 +0100
 
 sway (1.2-1) experimental; urgency=medium
 
