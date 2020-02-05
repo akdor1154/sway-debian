@@ -1,6 +1,7 @@
 sway (1.4-1) unstable; urgency=medium
 
   * New upstream version (Closes: #949984)
+  * Upload to unstable, now that wlroots is in unstable
   * d/control:
     - Bump version of wlroots build dependency to 0.10.0
     - Bump standards version to 4.5.0 (no changes required)
