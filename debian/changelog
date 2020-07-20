@@ -1,7 +1,9 @@
 sway (1.5-1) unstable; urgency=medium
 
   * New upstream version
-  * d/control: update maintainer address
+  * d/control
+   + Update maintainer address
+   + Bump min. version of wlroots build dependency to 0.11.0
 
  -- Birger Schacht <birger@debian.org>  Mon, 20 Jul 2020 20:47:23 +0200
 
