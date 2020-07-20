@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Sway and related packages team <team+swaywm@tracker.debian.org>
 Uploaders: Birger Schacht <birger@debian.org>,
            Nicolas Braud-Santoni <nicoo@debian.org>
-Build-Depends: debhelper-compat (= 12),
+Build-Depends: debhelper-compat (= 13),
                libcairo2-dev,
                libcap-dev,
                libdbus-1-dev (>= 1.10),
