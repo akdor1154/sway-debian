@@ -2,7 +2,7 @@ Source: sway
 Section: x11
 Priority: optional
 Maintainer: Sway and related packages team <team+swaywm@tracker.debian.org>
-Uploaders: Birger Schacht <birger@rantanplan.org>,
+Uploaders: Birger Schacht <birger@debian.org>,
            Nicolas Braud-Santoni <nicoo@debian.org>
 Build-Depends: debhelper-compat (= 12),
                libcairo2-dev,
