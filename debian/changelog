@@ -3,7 +3,7 @@ sway (1.5-1) experimental; urgency=medium
   * Upload to experimental
   * New upstream version
   * d/control
-   + Update maintainer address
+   + Update uploader address
    + Bump min. version of wlroots build dependency to 0.11.0
    + Bump debhelper-compat version to 13
   * Update d/copyright
