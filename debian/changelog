@@ -1,5 +1,6 @@
-sway (1.5-1) unstable; urgency=medium
+sway (1.5-1) experimental; urgency=medium
 
+  * Upload to experimental
   * New upstream version
   * d/control
    + Update maintainer address
