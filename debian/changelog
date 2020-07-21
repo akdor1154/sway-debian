@@ -6,8 +6,9 @@ sway (1.5-1) experimental; urgency=medium
    + Update maintainer address
    + Bump min. version of wlroots build dependency to 0.11.0
    + Bump debhelper-compat version to 13
+  * Update d/copyright
 
- -- Birger Schacht <birger@debian.org>  Mon, 20 Jul 2020 20:47:23 +0200
+ -- Birger Schacht <birger@debian.org>  Tue, 21 Jul 2020 09:00:51 +0200
 
 sway (1.4-2) unstable; urgency=medium
 
