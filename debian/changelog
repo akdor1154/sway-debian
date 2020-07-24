@@ -1,3 +1,9 @@
+sway (1.5-2) unstable; urgency=medium
+
+  * Upload to unstable (Closes: #965337)
+
+ -- Birger Schacht <birger@debian.org>  Fri, 24 Jul 2020 17:42:00 +0200
+
 sway (1.5-1) experimental; urgency=medium
 
   * Upload to experimental
