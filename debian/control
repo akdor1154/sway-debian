@@ -34,7 +34,7 @@ Rules-Requires-Root: no
 
 Package: sway
 Architecture: any
-Depends: libgl1-mesa-dri, swaybg, ${misc:Depends}, ${shlibs:Depends}
+Depends: libgl1-mesa-dri, swaybg, policykit-1, ${misc:Depends}, ${shlibs:Depends}
 Recommends: suckless-tools, sway-backgrounds, x-terminal-emulator
 Suggests: swayidle, swaylock
 Description: i3-compatible Wayland compositor

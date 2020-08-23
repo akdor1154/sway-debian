@@ -1,3 +1,9 @@
+sway (1.5-3) unstable; urgency=medium
+
+  * Add policykit-1 to dependencies (Closes: #968643)
+
+ -- Birger Schacht <birger@debian.org>  Sun, 23 Aug 2020 10:44:15 +0200
+
 sway (1.5-2) unstable; urgency=medium
 
   * Upload to unstable (Closes: #965337)
