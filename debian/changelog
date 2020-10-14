@@ -1,3 +1,12 @@
+sway (1.5-4) unstable; urgency=medium
+
+  * d/control: do not use a virtual package as primary
+    recommendation (Closes: #972199)
+  * d/patches: set default terminal to foot in the system wide
+    configuration file
+
+ -- Birger Schacht <birger@debian.org>  Wed, 14 Oct 2020 20:48:12 +0200
+
 sway (1.5-3) unstable; urgency=medium
 
   * Add policykit-1 to dependencies (Closes: #968643)

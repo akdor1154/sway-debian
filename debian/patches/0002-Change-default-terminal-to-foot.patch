@@ -1,14 +1,15 @@
-From 38f605cb58c58e5c19542a387c6dba751683c816 Mon Sep 17 00:00:00 2001
+From 963d868b3fc5c2287d5ff138122ad1d863cd9c23 Mon Sep 17 00:00:00 2001
 From: Birger Schacht <birger@rantanplan.org>
-Date: Wed, 22 Jan 2020 21:17:02 +0100
-Subject: [PATCH] Replace alacritty with x-terminal-emulator
+Date: Wed, 14 Oct 2020 20:44:01 +0200
+Subject: [PATCH] Change default terminal to foot
 
+... because alacritty is not in Debian
 ---
  config.in | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/config.in b/config.in
-index 67c748ba..0f3ca23a 100644
+index 08703bef..8031523e 100644
 --- a/config.in
 +++ b/config.in
 @@ -14,7 +14,7 @@ set $down j
@@ -16,10 +17,10 @@ index 67c748ba..0f3ca23a 100644
  set $right l
  # Your preferred terminal emulator
 -set $term alacritty
-+set $term x-terminal-emulator
++set $term foot
  # Your preferred application launcher
  # Note: pass the final command to swaymsg so that the resulting window can be opened
  # on the original workspace that the command was run on.
 -- 
-2.25.0
+2.28.0
 
