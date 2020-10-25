@@ -1,3 +1,11 @@
+sway (1.5-5) unstable; urgency=medium
+
+  * Only recommend foot, so users have a usable sway config
+    on installation (Closes: #972569)
+  * Add xdg-desktop-portal-wlr to suggestions
+
+ -- Birger Schacht <birger@debian.org>  Sun, 25 Oct 2020 09:20:45 +0100
+
 sway (1.5-4) unstable; urgency=medium
 
   * d/control: do not use a virtual package as primary

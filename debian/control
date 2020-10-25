@@ -35,8 +35,8 @@ Rules-Requires-Root: no
 Package: sway
 Architecture: any
 Depends: libgl1-mesa-dri, swaybg, policykit-1, ${misc:Depends}, ${shlibs:Depends}
-Recommends: suckless-tools, sway-backgrounds, foot | xterm | x-terminal-emulator
-Suggests: swayidle, swaylock
+Recommends: suckless-tools, sway-backgrounds, foot
+Suggests: swayidle, swaylock, xdg-desktop-portal-wlr
 Description: i3-compatible Wayland compositor
  sway (SirCmpwn's Wayland compositor) is a tiling Wayland compositor and a
  drop-in replacement for the i3 window manager for X11. It works with your
