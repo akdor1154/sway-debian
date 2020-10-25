@@ -7,3 +7,4 @@ usr/share/man/man5/sway*
 usr/share/man/man7/sway*
 usr/share/wayland-sessions
 usr/share/zsh/vendor-completions/_sway*
+debian/config-vars.d/00-set-term-foot.conf /etc/sway/config-vars.d/

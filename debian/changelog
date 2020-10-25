@@ -5,6 +5,8 @@ sway (1.5-5) unstable; urgency=medium
   * Add xdg-desktop-portal-wlr to suggestions
   * Add support for overriding configfile variables in default
     config (Closes: #969427)
+  * Add a config file overriding the default $term variable
+    and setting it to foot
 
  -- Birger Schacht <birger@debian.org>  Sun, 25 Oct 2020 09:20:45 +0100
 
