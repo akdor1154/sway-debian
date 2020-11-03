@@ -1,3 +1,10 @@
+sway (1.5-6) experimental; urgency=medium
+
+  * Add a new binary package that contains the `grimshot` script
+    and its documentation from the contrib folder (Closes: #960044)
+
+ -- Birger Schacht <birger@debian.org>  Tue, 03 Nov 2020 20:37:56 +0100
+
 sway (1.5-5) unstable; urgency=medium
 
   * Only recommend foot, so users have a usable sway config

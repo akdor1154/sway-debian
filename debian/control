@@ -55,3 +55,11 @@ Description: Set of backgrounds packaged with the sway window manager
  extras. This means it is a minimalist, tiling window manager.
  .
  This package contains a set of desktop backgrounds that come with sway.
+
+Package: grimshot
+Architecture: all
+Multi-Arch: foreign
+Depends: ${misc:Depends}, ${shlibs:Depends}, grim, slurp, sway, wl-clipboard, jq, libnotify-bin
+Description: Easy to use screenshot tool for sway
+ grimshot is a shell helper for creating screenshot in sway. It uses the
+ grim screenshot utility some other small tools like slurp, wl-copy and jq.
