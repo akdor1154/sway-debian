@@ -1,6 +1,7 @@
 sway (1.5-7) unstable; urgency=medium
 
   * Upload to unstable with new package `grimshot`
+  * Add Bug-Tracking information to d/upstream/metadata
 
  -- Birger Schacht <birger@debian.org>  Thu, 05 Nov 2020 22:23:45 +0100
 
