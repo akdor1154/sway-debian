@@ -5,7 +5,7 @@ sway (1.5-7) unstable; urgency=medium
   * Drop config snippet that sets the default term and set this
     in the default configuration instead
   * Add d/sway.maintscript to remove obsolete config file
-  * Add a config file to set enviroment variables in systemd
+  * Add a config file to set environment variables in systemd
     environment
 
  -- Birger Schacht <birger@debian.org>  Thu, 05 Nov 2020 22:40:59 +0100
