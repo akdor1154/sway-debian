@@ -1,3 +1,14 @@
+sway (1.5.1-1) experimental; urgency=medium
+
+  * New upstream release
+    Compatible with wlroots v0.12
+
+  * Update nicoo's name
+  * d/upstream: Update signing key
+  * d/gbp.conf: Update debian-branch for experimental
+
+ -- nicoo <nicoo@debian.org>  Wed, 03 Feb 2021 18:42:21 +0100
+
 sway (1.5-7) unstable; urgency=medium
 
   * Upload to unstable with new package `grimshot`
