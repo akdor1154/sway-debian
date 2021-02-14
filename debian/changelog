@@ -1,3 +1,21 @@
+sway (1.5.1-2) unstable; urgency=medium
+
+  * Update dependency on wlroots (0.12 or higher)
+  * d/gbp.conf: Update debian-branch.
+
+ -- nicoo <nicoo@debian.org>  Sun, 14 Feb 2021 12:36:51 +0100
+
+sway (1.5.1-1) experimental; urgency=medium
+
+  * New upstream release
+    Compatible with wlroots v0.12
+
+  * Update nicoo's name
+  * d/upstream: Update signing key
+  * d/gbp.conf: Update debian-branch for experimental
+
+ -- nicoo <nicoo@debian.org>  Wed, 03 Feb 2021 18:42:21 +0100
+
 sway (1.5-7) unstable; urgency=medium
 
   * Upload to unstable with new package `grimshot`
@@ -193,7 +211,7 @@ sway (1.0~beta.2-2) experimental; urgency=medium
 
 sway (1.0~beta.2-1) experimental; urgency=medium
 
-  [ Nicolas Braud-Santoni & Birger Schacht ]
+  [ nicoo & Birger Schacht ]
   * Initial packaging (Closes: 897246, 821397)
 
  -- Birger Schacht <birger@rantanplan.org>  Wed, 30 Jan 2019 21:11:27 +0100
