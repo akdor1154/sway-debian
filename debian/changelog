@@ -1,3 +1,10 @@
+sway (1.5.1-2) unstable; urgency=medium
+
+  * Update dependency on wlroots (0.12 or higher)
+  * d/gbp.conf: Update debian-branch.
+
+ -- nicoo <nicoo@debian.org>  Sun, 14 Feb 2021 12:36:51 +0100
+
 sway (1.5.1-1) experimental; urgency=medium
 
   * New upstream release
